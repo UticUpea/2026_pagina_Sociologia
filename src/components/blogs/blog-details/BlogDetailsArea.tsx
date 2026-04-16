@@ -1,5 +1,4 @@
-/* si lo usamos */
-"use client"
+"use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -17,38 +16,57 @@ interface EventoItem {
    evento_lugar: string;
 }
 
-interface ApiErrorResponse {
-   statusCode: number;
-   message: string;
-   path: string;
-   timestamp: string;
-}
+// =============================================
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
+// =============================================
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
 
 // =============================================
-// CONSTANTES - ID DE INSTITUCIÓN (NUEVO SERVIDOR)
-// =============================================
-// Según endpoint: https://apiadministrador.upea.bo/api/v2/institucionesPrincipal/35
-const INSTITUCION_ID = "35"; // Sociología
-
-// =============================================
-// UTILIDADES
+// UTILIDADES - Manejo Inteligente de Imágenes/PDFs
 // =============================================
 
 /**
- * Construye URL de imagen desde el nuevo servidor
+ * Construye URL completa para imágenes y PDFs
+ * ✅ URL completa (http/https) → Retorna tal cual (MinIO o externo)
+ * ✅ Ruta relativa (/storage/...) → Agrega API_BASE_URL
+ * ✅ UUID/filename → Agrega carpeta según tipo
  */
-const buildImageUrl = (fileName: string | null | undefined): string => {
-   if (!fileName) return '/images/placeholder-event.jpg';
-   
-   const cleanName = fileName.trim();
-   
-   // Si ya es URL absoluta
-   if (cleanName.startsWith('http://') || cleanName.startsWith('https://')) {
-      return cleanName;
-   }
-   
-   // Usar proxy local con autenticación
-   return `/api/recurso?file=${encodeURIComponent(cleanName)}`;
+const buildResourceUrl = (
+  resourcePath: string | null | undefined,
+  type: 'evento' | 'convocatoria' | 'curso' | 'gaceta' | 'autoridad' | 'portada' | 'documento' = 'evento'
+): string => {
+  // Placeholder si no hay recurso
+  if (!resourcePath) {
+    return type === 'documento' ? '/files/placeholder.pdf' : '/images/placeholder.jpg';
+  }
+  
+  const cleanPath = resourcePath.trim();
+  
+  // ✅ CASO 1: Ya es URL completa (MinIO, YouTube, externo) → NO modificar
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    return cleanPath;
+  }
+  
+  // ✅ CASO 2: Ruta relativa /storage/... → Agregar API_BASE_URL
+  if (cleanPath.startsWith('/storage/')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+  
+  // ✅ CASO 3: UUID o filename → Construir URL con carpeta según tipo
+  const typeFolders: Record<string, string> = {
+    evento: '/storage/imagenes/eventos/',
+    convocatoria: '/storage/imagenes/convocatorias/',
+    curso: '/storage/imagenes/cursos/',
+    gaceta: '/storage/imagenes/gacetas/',
+    autoridad: '/storage/imagenes/autoridades/',
+    portada: '/storage/imagenes/portadas/',
+    documento: '/storage/documentos/'
+  };
+  
+  const folder = typeFolders[type] || '/storage/imagenes/';
+  return `${API_BASE_URL}${folder}${cleanPath}`;
 };
 
 /**
@@ -85,26 +103,29 @@ const cleanHtml = (html: string): string => {
 };
 
 // =============================================
-// SERVICIO: Obtener eventos/gaceta
+// SERVICIO: Obtener eventos/gaceta desde API
 // =============================================
 const getInstitucionGacetaEventos = async (institucionId: string) => {
    try {
-      const response = await fetch(
-         `/api/institucion?path=institucion/${institucionId}/gacetaEventos`,
-         {
-            method: 'GET',
-            headers: {
-               'Content-Type': 'application/json',
-            },
-         }
-      );
+      // ✅ Usar variables de entorno para la URL y token
+      const apiUrl = `${API_BASE_URL}/api/v2/institucion/${institucionId}/gacetaEventos`;
+      
+      const response = await fetch(apiUrl, {
+         method: 'GET',
+         headers: {
+            'Content-Type': 'application/json',
+            ...(API_TOKEN && { 'Authorization': `Bearer ${API_TOKEN}` })
+         },
+         cache: 'no-store'
+      });
       
       const data = await response.json();
       
       console.log('[Service] Respuesta eventos:', {
          status: response.status,
          ok: response.ok,
-          data
+         apiUrl,
+         data
       });
       
       return {
@@ -129,7 +150,7 @@ const BlogDetailsArea: React.FC = () => {
    const [error, setError] = useState<string | null>(null);
 
    // =============================================
-   // CARGA DE DATOS - NUEVO SERVICIO API V2
+   // CARGA DE DATOS - API CON VARIABLES DE ENTORNO
    // =============================================
    useEffect(() => {
       let isMounted = true;
@@ -139,9 +160,10 @@ const BlogDetailsArea: React.FC = () => {
             setLoading(true);
             setError(null);
             
-            console.log(`🔄 [BlogDetails] Cargando eventos para Sociología (ID: ${INSTITUCION_ID})...`);
+            console.log(`🔄 [BlogDetails] API: ${API_BASE_URL}`);
+            console.log(`📋 Institución ID: ${INSTITUCION_ID}`);
             
-            // ✅ Llamada al nuevo servicio con token (vía proxy)
+            // ✅ Llamada al servicio con variables de entorno
             const response = await getInstitucionGacetaEventos(INSTITUCION_ID);
             
             console.log('📡 [BlogDetails] Respuesta completa:', response);
@@ -150,7 +172,7 @@ const BlogDetailsArea: React.FC = () => {
             // CASO 1: Error 404 - Sin eventos (ESPERADO)
             // =============================================
             if (response.status === 404 || response.data?.statusCode === 404) {
-               console.log('ℹ️ [BlogDetails] Sin eventos disponibles (404 del nuevo servicio)');
+               console.log('ℹ️ [BlogDetails] Sin eventos disponibles (404)');
                if (isMounted) {
                   setEventos([]);
                }
@@ -173,7 +195,7 @@ const BlogDetailsArea: React.FC = () => {
                
                if (isMounted) {
                   setEventos(lista);
-                  console.log(`✅ [BlogDetails] ${lista.length} eventos cargados exitosamente`);
+                  console.log(`✅ [BlogDetails] ${lista.length} eventos cargados`);
                }
                return;
             }
@@ -217,7 +239,7 @@ const BlogDetailsArea: React.FC = () => {
                if (err?.status === 404) {
                   setEventos([]);
                } else {
-                  setError(err?.message || "Error al cargar los eventos");
+                  setError(err?.message || "Error al conectar con el servidor");
                   setEventos([]);
                }
             }
@@ -232,7 +254,7 @@ const BlogDetailsArea: React.FC = () => {
       
       return () => { isMounted = false; };
       
-   }, []); // ID fijo en constante
+   }, []);
 
    // =============================================
    // ESTADOS DE UI
@@ -247,7 +269,9 @@ const BlogDetailsArea: React.FC = () => {
                         <div className="spinner-border text-primary" role="status">
                            <span className="visually-hidden">Cargando...</span>
                         </div>
-                        <p className="mt-3 text-muted">Cargando eventos de Sociología...</p>
+                        <p className="mt-3 text-muted">
+                           Conectando con: {API_BASE_URL}
+                        </p>
                      </div>
                   </div>
                </div>
@@ -266,6 +290,7 @@ const BlogDetailsArea: React.FC = () => {
                         <i className="fa fa-exclamation-triangle me-2"></i>
                         <strong>Atención:</strong> {error}
                      </div>
+                  
                      <button 
                         className="btn btn-outline-primary mt-3"
                         onClick={() => window.location.reload()}
@@ -295,107 +320,116 @@ const BlogDetailsArea: React.FC = () => {
                         <p className="text-muted small mb-0">
                            Los eventos y actividades de Sociología se mostrarán aquí cuando estén disponibles.
                         </p>
+                        <p className="text-muted small mt-2">
+                           API: {API_BASE_URL} | ID: {INSTITUCION_ID}
+                        </p>
                      </div>
                   </div>
                )}
                
-               {eventos.map((evento) => (
-                  <div
-                     key={evento.evento_id}
-                     className="col-lg-4 mb-4"
-                     style={{ minWidth: "320px", maxWidth: "400px" }}
-                  >
-                     <article className="blog-details-page-content h-100">
-                        <div className="single-blog-inner style-border h-100 d-flex flex-column">
-                           
-                           {/* Thumbnail con imagen */}
-                           <div className="thumb position-relative">
-                              <Image
-                                 src={buildImageUrl(evento.evento_imagen)}
-                                 alt={`Evento: ${evento.evento_titulo}`}
-                                 width={500}
-                                 height={300}
-                                 className="fixed-image"
-                                 style={{ objectFit: "cover" }}
-                                 unoptimized={evento.evento_imagen?.startsWith('http')}
-                                 onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    target.src = '/images/placeholder-event.jpg';
-                                 }}
-                                 loading="lazy"
-                              />
-                              {/* Badge de fecha */}
-                              {evento.evento_fecha && (
-                                 <span className="badge bg-primary position-absolute top-0 end-0 m-2">
-                                    <i className="fa fa-calendar me-1"></i>
-                                    {new Date(evento.evento_fecha).toLocaleDateString("es-ES", {
-                                       day: "2-digit", month: "short"
-                                    })}
-                                 </span>
-                              )}
-                           </div>
-                           
-                           {/* Contenido */}
-                           <div className="details flex-grow-1 d-flex flex-column">
+               {eventos.map((evento) => {
+                  // ✅ Construir URL de imagen inteligente
+                  const imageUrl = buildResourceUrl(evento.evento_imagen, 'evento');
+                  
+                  return (
+                     <div
+                        key={evento.evento_id}
+                        className="col-lg-4 mb-4"
+                        style={{ minWidth: "320px", maxWidth: "400px" }}
+                     >
+                        <article className="blog-details-page-content h-100">
+                           <div className="single-blog-inner style-border h-100 d-flex flex-column">
                               
-                              {/* Meta información */}
-                              <ul className="blog-meta list-unstyled d-flex gap-2 mb-2 flex-wrap">
-                                 <li className="text-muted small">
-                                    <i className="fa fa-user me-1" aria-hidden="true"></i>
-                                    Sociología UPEA
-                                 </li>
-                                 <li className="text-muted small">
-                                    <i className="fa fa-calendar-check-o me-1" aria-hidden="true"></i>
-                                    <span>{formatDateES(evento.evento_fecha)}</span>
-                                 </li>
-                                 {evento.evento_hora && (
-                                    <li className="text-muted small">
-                                       <i className="fa fa-clock-o me-1" aria-hidden="true"></i>
-                                       <span>{evento.evento_hora}</span>
-                                    </li>
+                              {/* Thumbnail con imagen */}
+                              <div className="thumb position-relative">
+                                 <Image
+                                    src={imageUrl}
+                                    alt={`Evento: ${evento.evento_titulo}`}
+                                    width={500}
+                                    height={300}
+                                    className="fixed-image"
+                                    style={{ objectFit: "cover" }}
+                                    // ✅ No optimizar si es URL externa (MinIO)
+                                    unoptimized={imageUrl.startsWith('http')}
+                                    onError={(e) => {
+                                       const target = e.target as HTMLImageElement;
+                                       target.src = '/images/placeholder-event.jpg';
+                                    }}
+                                    loading="lazy"
+                                 />
+                                 {/* Badge de fecha */}
+                                 {evento.evento_fecha && (
+                                    <span className="badge bg-primary position-absolute top-0 end-0 m-2">
+                                       <i className="fa fa-calendar me-1"></i>
+                                       {new Date(evento.evento_fecha).toLocaleDateString("es-ES", {
+                                          day: "2-digit", month: "short"
+                                       })}
+                                    </span>
                                  )}
-                              </ul>
+                              </div>
                               
-                              {/* Título */}
-                              <h3 className="title mb-3">
-                                 <Link 
-                                    href={`/evento/${evento.evento_id}`} 
-                                    className="text-decoration-none text-dark stretched-link"
-                                    title={evento.evento_titulo}
-                                 >
-                                    {evento.evento_titulo}
-                                 </Link>
-                              </h3>
-                              
-                              {/* Descripción limpia */}
-                              {evento.evento_descripcion && (
-                                 <p className="text-muted mb-3 flex-grow-1 text-limit">
-                                    {cleanHtml(evento.evento_descripcion)}
-                                 </p>
-                              )}
-                              
-                              {/* Lugar si existe */}
-                              {evento.evento_lugar && (
-                                 <p className="text-muted small mb-3">
-                                    <i className="fa fa-map-marker me-1"></i>
-                                    {evento.evento_lugar}
-                                 </p>
-                              )}
-                              
-                              {/* Botón de acción */}
-                              <div className="mt-auto">
-                                 <Link 
-                                    href={`/evento/${evento.evento_id}`}
-                                    className="btn btn-sm btn-outline-primary"
-                                 >
-                                    Ver más detalles <i className="fa fa-arrow-right ms-1"></i>
-                                 </Link>
+                              {/* Contenido */}
+                              <div className="details flex-grow-1 d-flex flex-column">
+                                 
+                                 {/* Meta información */}
+                                 <ul className="blog-meta list-unstyled d-flex gap-2 mb-2 flex-wrap">
+                                    <li className="text-muted small">
+                                       <i className="fa fa-user me-1" aria-hidden="true"></i>
+                                       Sociología UPEA
+                                    </li>
+                                    <li className="text-muted small">
+                                       <i className="fa fa-calendar-check-o me-1" aria-hidden="true"></i>
+                                       <span>{formatDateES(evento.evento_fecha)}</span>
+                                    </li>
+                                    {evento.evento_hora && (
+                                       <li className="text-muted small">
+                                          <i className="fa fa-clock-o me-1" aria-hidden="true"></i>
+                                          <span>{evento.evento_hora}</span>
+                                       </li>
+                                    )}
+                                 </ul>
+                                 
+                                 {/* Título */}
+                                 <h3 className="title mb-3">
+                                    <Link 
+                                       href={`/evento/${evento.evento_id}`} 
+                                       className="text-decoration-none text-dark stretched-link"
+                                       title={evento.evento_titulo}
+                                    >
+                                       {evento.evento_titulo}
+                                    </Link>
+                                 </h3>
+                                 
+                                 {/* Descripción limpia */}
+                                 {evento.evento_descripcion && (
+                                    <p className="text-muted mb-3 flex-grow-1 text-limit">
+                                       {cleanHtml(evento.evento_descripcion)}
+                                    </p>
+                                 )}
+                                 
+                                 {/* Lugar si existe */}
+                                 {evento.evento_lugar && (
+                                    <p className="text-muted small mb-3">
+                                       <i className="fa fa-map-marker me-1"></i>
+                                       {evento.evento_lugar}
+                                    </p>
+                                 )}
+                                 
+                                 {/* Botón de acción */}
+                                 <div className="mt-auto">
+                                    <Link 
+                                       href={`/evento/${evento.evento_id}`}
+                                       className="btn btn-sm btn-outline-primary"
+                                    >
+                                       Ver más detalles <i className="fa fa-arrow-right ms-1"></i>
+                                    </Link>
+                                 </div>
                               </div>
                            </div>
-                        </div>
-                     </article>
-                  </div>
-               ))}
+                        </article>
+                     </div>
+                  );
+               })}
                
                {/* Sidebar placeholder (opcional) */}
                <div className="col-lg-4 col-12 d-none d-lg-block">

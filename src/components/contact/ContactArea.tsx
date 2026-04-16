@@ -39,16 +39,56 @@ interface ContactItem {
 }
 
 // =============================================
-// CONSTANTES
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
 // =============================================
-const API_BASE_URL = 'https://apiadministrador.upea.bo';
-const API_TOKEN = '130143e7a5de4f3524cae21a8f333b85e82a9ac037f111d9d1fbad23edecccc1';
-const INSTITUCION_ID = "35";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
 const MAX_INT32 = 2147483647;
 
 // =============================================
-// UTILIDADES
+// UTILIDADES - Manejo Inteligente de URLs
 // =============================================
+
+/**
+ * Construye URL completa para imágenes/recursos
+ * ✅ URL completa (http/https) → Retorna tal cual (MinIO o externo)
+ * ✅ Ruta relativa (/storage/...) → Agrega API_BASE_URL
+ * ✅ UUID/filename → Agrega carpeta según tipo
+ */
+const buildResourceUrl = (
+  resourcePath: string | null | undefined,
+  type: 'portada' | 'evento' | 'curso' | 'convocatoria' | 'gaceta' | 'autoridad' | 'contacto' = 'contacto'
+): string => {
+  if (!resourcePath) return '/images/placeholder.jpg';
+  
+  const cleanPath = resourcePath.trim();
+  
+  // ✅ CASO 1: Ya es URL completa (MinIO o externo) → NO modificar
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    return cleanPath;
+  }
+  
+  // ✅ CASO 2: Ruta relativa /storage/... → Agregar API_BASE_URL
+  if (cleanPath.startsWith('/storage/')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+  
+  // ✅ CASO 3: UUID o filename → Construir URL con carpeta según tipo
+  const typeFolders: Record<string, string> = {
+    portada: '/storage/imagenes/portadas/',
+    evento: '/storage/imagenes/eventos/',
+    curso: '/storage/imagenes/cursos/',
+    convocatoria: '/storage/imagenes/convocatorias/',
+    gaceta: '/storage/imagenes/gacetas/',
+    autoridad: '/storage/imagenes/autoridades/',
+    contacto: '/storage/imagenes/contactos/'
+  };
+  
+  const folder = typeFolders[type] || '/storage/imagenes/';
+  return `${API_BASE_URL}${folder}${cleanPath}`;
+};
+
 const cleanUrl = (url: string | null | undefined): string => {
    if (!url) return "#";
    return url.toString().trim();
@@ -78,11 +118,11 @@ const buildWhatsAppLink = (phone: string): string => {
 };
 
 // =============================================
-// SERVICIO: ✅ CORREGIDO - Usa /institucionesPrincipal/{id}
+// SERVICIO: ✅ CON VARIABLES DE ENTORNO
 // =============================================
 const getInstitucionPrincipal = async (institucionId: string) => {
    try {
-      // ✅ ENDPOINT CORRECTO PARA CONTACTOS
+      // ✅ ENDPOINT CON VARIABLES DE ENTORNO
       const url = `${API_BASE_URL}/api/v2/institucionesPrincipal/${institucionId}`;
       
       console.log('[ContactArea] Fetching desde:', url);
@@ -132,7 +172,7 @@ const ContactArea: React.FC = () => {
    const [error, setError] = useState<string | null>(null);
 
    // =============================================
-   // CARGA DE DATOS - NUEVO SERVICIO API V2
+   // CARGA DE DATOS - API CON VARIABLES DE ENTORNO
    // =============================================
    useEffect(() => {
       let isMounted = true;
@@ -142,7 +182,8 @@ const ContactArea: React.FC = () => {
             setLoading(true);
             setError(null);
             
-            console.log(`🔄 [ContactArea] Cargando contactos de Sociología (ID: ${INSTITUCION_ID})...`);
+            console.log(`🔄 [ContactArea] API: ${API_BASE_URL}`);
+            console.log(`📋 Institución ID: ${INSTITUCION_ID}`);
             
             const response = await getInstitucionPrincipal(INSTITUCION_ID);
             
@@ -192,7 +233,7 @@ const ContactArea: React.FC = () => {
                if (err?.status === 404) {
                   setInstitucion(null);
                } else {
-                  setError(err?.message || "Error al cargar los datos de contacto");
+                  setError(err?.message || "Error al conectar con el servidor");
                   setInstitucion(null);
                }
             }
@@ -351,7 +392,9 @@ const ContactArea: React.FC = () => {
                         <div className="spinner-border text-primary" role="status">
                            <span className="visually-hidden">Cargando...</span>
                         </div>
-                        <p className="mt-3 text-muted">Cargando información de contacto...</p>
+                        <p className="mt-3 text-muted">
+                           Conectando con: {API_BASE_URL}
+                        </p>
                      </div>
                   </div>
                </div>
@@ -377,6 +420,9 @@ const ContactArea: React.FC = () => {
                            {error 
                               ? `⚠️ ${error}` 
                               : "Los datos de contacto de Sociología se mostrarán aquí cuando estén disponibles."}
+                        </p>
+                        <p className="text-muted small mt-2">
+                           API: {API_BASE_URL} | ID: {INSTITUCION_ID}
                         </p>
                         {error && (
                            <button 

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import DOMPurify from "dompurify";
 
+// ✅ Íconos locales (NO vienen del API - son assets estáticos)
 import icon_1 from "@/assets/img/icon/12.png";
 import icon_2 from "@/assets/img/icon/13.png";
 import icon_3 from "@/assets/img/icon/14.png";
@@ -13,6 +14,8 @@ interface DataType {
    icon: any;
    title: string;
    desc: string;
+   // ✅ Campo opcional para imagen del API (si en el futuro la agregan)
+   iconUrl?: string;
 }
 
 const work_data: DataType[] = [
@@ -43,16 +46,60 @@ const work_data: DataType[] = [
 ];
 
 // =============================================
-// CONSTANTES - API DEL NUEVO SERVICIO
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
 // =============================================
-const API_BASE_URL = 'https://apiadministrador.upea.bo';
-const API_TOKEN = '130143e7a5de4f3524cae21a8f333b85e82a9ac037f111d9d1fbad23edecccc1';
-const INSTITUCION_ID = "35";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
 
 // =============================================
-// COMPONENTE - VALIDACIÓN MEJORADA + HTML SEGURO ✨
+// UTILIDADES - Manejo Inteligente de Imágenes del API
 // =============================================
-const WorkArea = () => {
+
+/**
+ * Construye URL completa para imágenes del API
+ * ✅ URL completa (http/https) → Retorna tal cual (MinIO o externo)
+ * ✅ Ruta relativa (/storage/...) → Agrega API_BASE_URL
+ * ✅ UUID/filename → Agrega carpeta según tipo
+ */
+const buildImageUrl = (
+  imagePath: string | null | undefined,
+  type: 'work' | 'logo' | 'portada' | 'evento' | 'curso' | 'convocatoria' | 'gaceta' | 'autoridad' = 'work'
+): string => {
+  if (!imagePath) return '';
+  
+  const cleanPath = imagePath.trim();
+  
+  // ✅ CASO 1: Ya es URL completa (MinIO o externo) → NO modificar
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    return cleanPath;
+  }
+  
+  // ✅ CASO 2: Ruta relativa /storage/... → Agregar API_BASE_URL
+  if (cleanPath.startsWith('/storage/')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+  
+  // ✅ CASO 3: UUID o filename → Construir URL con carpeta según tipo
+  const typeFolders: Record<string, string> = {
+    work: '/storage/imagenes/work/',
+    logo: '/storage/imagenes/logos/',
+    portada: '/storage/imagenes/portadas/',
+    evento: '/storage/imagenes/eventos/',
+    curso: '/storage/imagenes/cursos/',
+    convocatoria: '/storage/imagenes/convocatorias/',
+    gaceta: '/storage/imagenes/gacetas/',
+    autoridad: '/storage/imagenes/autoridades/'
+  };
+  
+  const folder = typeFolders[type] || '/storage/imagenes/';
+  return `${API_BASE_URL}${folder}${cleanPath}`;
+};
+
+// =============================================
+// COMPONENTE PRINCIPAL - VALIDACIÓN + HTML SEGURO ✨
+// =============================================
+const WorkArea: React.FC = () => {
    
    const [sociologoData, setSociologoData] = useState<string>("");
    const [hasData, setHasData] = useState<boolean>(false);
@@ -95,13 +142,15 @@ const WorkArea = () => {
    };
    
    // =============================================
-   // CARGAR DATOS DESDE API - CON VALIDACIÓN MEJORADA
+   // CARGAR DATOS DESDE API - CON VARIABLES DE ENTORNO
    // =============================================
    useEffect(() => {
       const fetchSociologoData = async () => {
          try {
-            console.log('🔄 [WorkArea] Cargando datos del sociólogo desde API...');
+            console.log('🔄 [WorkArea] API:', API_BASE_URL);
+            console.log('📋 Institución ID:', INSTITUCION_ID);
             
+            // ✅ URL y headers con variables de entorno
             const url = `${API_BASE_URL}/api/v2/institucionesPrincipal/${INSTITUCION_ID}`;
             const headers: HeadersInit = { 
                'Content-Type': 'application/json',
@@ -144,7 +193,7 @@ const WorkArea = () => {
                   console.log('⚠️ [WorkArea] Contenido inválido o malformado');
                }
             } else {
-               console.warn('⚠️ [WorkArea] Error en la respuesta de la API:', response.status);
+               console.warn(`⚠️ [WorkArea] Error ${response.status} en la respuesta de la API`);
                setHasData(false);
                setSociologoData("");
             }
@@ -372,7 +421,7 @@ const WorkArea = () => {
                               <span className="visually-hidden">Cargando...</span>
                            </div>
                            <p className="mt-3" style={{ color: 'rgba(255,255,255,0.8)', fontSize: '1.05rem' }}>
-                              Cargando información del sociólogo...
+                              Conectando con: {API_BASE_URL}
                            </p>
                         </div>
                      ) : hasData && sociologoData ? (
@@ -390,8 +439,11 @@ const WorkArea = () => {
                               <strong style={{ display: 'block', marginBottom: '4px', color: '#FAB265' }}>
                                  Información no disponible
                               </strong>
-                              El contenido sobre "¿Qué es un sociólogo?" será mostrado aquí cuando la administración lo publique.
+                              El contenido sobre &quot;¿Qué es un sociólogo?&quot; será mostrado aquí cuando la administración lo publique.
                            </div>
+                           <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', marginTop: '1rem', marginBottom: 0 }}>
+                              API: {API_BASE_URL} | ID: {INSTITUCION_ID}
+                           </p>
                         </div>
                      )}
                   </div>
@@ -401,66 +453,89 @@ const WorkArea = () => {
             
             {/* Grid de Tarjetas */}
             <div className="row g-4">
-               {work_data.map((item, index) => (
-                  <div key={item.id} className="col-lg-6 col-md-6">
-                     <div 
-                        className="single-intro-inner style-icon-bg"
-                        style={workStyles.card}
-                        onMouseEnter={(e: any) => {
-                           Object.assign(e.currentTarget.style, workStyles.cardHover);
-                           const icon = e.currentTarget.querySelector('.card-icon');
-                           const border = e.currentTarget.querySelector('.card-border');
-                           if (icon) Object.assign(icon.style, workStyles.cardIconHover);
-                           if (border) Object.assign(border.style, workStyles.cardBorderHover);
-                        }}
-                        onMouseLeave={(e: any) => {
-                           Object.assign(e.currentTarget.style, {
-                              background: 'rgba(255,255,255,0.08)',
-                              borderColor: 'rgba(250,178,101,0.2)',
-                              transform: 'translateY(0)',
-                              boxShadow: 'none'
-                           });
-                           const icon = e.currentTarget.querySelector('.card-icon');
-                           const border = e.currentTarget.querySelector('.card-border');
-                           if (icon) Object.assign(icon.style, { 
-                              transform: 'scale(1) rotate(0deg)',
-                              boxShadow: '0 8px 24px rgba(253,28,10,0.4)'
-                           });
-                           if (border) Object.assign(border.style, { width: '0%' });
-                        }}
-                     >
-                        {/* Número decorativo */}
-                        <div style={workStyles.cardNumber}>{item.id}</div>
-                        
-                        {/* Ícono con fondo gradiente institucional */}
-                        <div className="thumb card-icon" style={workStyles.cardIcon}>
-                           <Image 
-                              src={item.icon} 
-                              alt={item.title}
-                              width={38}
-                              height={38}
-                              style={{ 
-                                 filter: 'brightness(0) invert(1)',
-                                 transition: 'filter 0.3s ease'
-                              }}
-                           />
+               {work_data.map((item, index) => {
+                  // ✅ Si el item tiene iconUrl del API, usarlo; sino usar ícono local
+                  const iconSrc = item.iconUrl ? buildImageUrl(item.iconUrl, 'work') : item.icon;
+                  const isExternalIcon = item.iconUrl && (item.iconUrl.startsWith('http://') || item.iconUrl.startsWith('https://'));
+                  
+                  return (
+                     <div key={item.id} className="col-lg-6 col-md-6">
+                        <div 
+                           className="single-intro-inner style-icon-bg"
+                           style={workStyles.card}
+                           onMouseEnter={(e: any) => {
+                              Object.assign(e.currentTarget.style, workStyles.cardHover);
+                              const icon = e.currentTarget.querySelector('.card-icon');
+                              const border = e.currentTarget.querySelector('.card-border');
+                              if (icon) Object.assign(icon.style, workStyles.cardIconHover);
+                              if (border) Object.assign(border.style, workStyles.cardBorderHover);
+                           }}
+                           onMouseLeave={(e: any) => {
+                              Object.assign(e.currentTarget.style, {
+                                 background: 'rgba(255,255,255,0.08)',
+                                 borderColor: 'rgba(250,178,101,0.2)',
+                                 transform: 'translateY(0)',
+                                 boxShadow: 'none'
+                              });
+                              const icon = e.currentTarget.querySelector('.card-icon');
+                              const border = e.currentTarget.querySelector('.card-border');
+                              if (icon) Object.assign(icon.style, { 
+                                 transform: 'scale(1) rotate(0deg)',
+                                 boxShadow: '0 8px 24px rgba(253,28,10,0.4)'
+                              });
+                              if (border) Object.assign(border.style, { width: '0%' });
+                           }}
+                        >
+                           {/* Número decorativo */}
+                           <div style={workStyles.cardNumber}>{item.id}</div>
+                           
+                           {/* Ícono: Local o del API */}
+                           <div className="thumb card-icon" style={workStyles.cardIcon}>
+                              {item.iconUrl ? (
+                                 // ✅ Ícono desde API con buildImageUrl
+                                 <Image 
+                                    src={iconSrc as string}
+                                    alt={item.title}
+                                    width={38}
+                                    height={38}
+                                    style={{ 
+                                       objectFit: 'contain',
+                                       filter: isExternalIcon ? 'none' : 'brightness(0) invert(1)',
+                                       transition: 'filter 0.3s ease'
+                                    }}
+                              
+                                 />
+                              ) : (
+                                 // ✅ Ícono local (actual)
+                                 <Image 
+                                    src={item.icon} 
+                                    alt={item.title}
+                                    width={38}
+                                    height={38}
+                                    style={{ 
+                                       filter: 'brightness(0) invert(1)',
+                                       transition: 'filter 0.3s ease'
+                                    }}
+                                 />
+                              )}
+                           </div>
+                           
+                           {/* Título */}
+                           <h5 style={workStyles.cardTitle}>
+                              {item.title}
+                           </h5>
+                           
+                           {/* Descripción */}
+                           <p style={workStyles.cardDescription}>
+                              {item.desc}
+                           </p>
+                           
+                           {/* Línea decorativa animada */}
+                           <div className="card-border" style={workStyles.cardBorder} />
                         </div>
-                        
-                        {/* Título */}
-                        <h5 style={workStyles.cardTitle}>
-                           {item.title}
-                        </h5>
-                        
-                        {/* Descripción */}
-                        <p style={workStyles.cardDescription}>
-                           {item.desc}
-                        </p>
-                        
-                        {/* Línea decorativa animada */}
-                        <div className="card-border" style={workStyles.cardBorder} />
                      </div>
-                  </div>
-               ))}
+                  );
+               })}
             </div>
          </div>
          

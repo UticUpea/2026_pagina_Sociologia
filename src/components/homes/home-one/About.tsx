@@ -5,7 +5,7 @@ import DOMPurify from "dompurify";
 import { CSSProperties } from 'react';
 
 // =============================================
-// INTERFACES (SIN CAMBIOS)
+// INTERFACES
 // =============================================
 interface InstitucionData {
    institucion_id: number;
@@ -18,16 +18,68 @@ interface InstitucionData {
    institucion_historia: string;
 }
 
-// =============================================
-// CONSTANTES (SIN CAMBIOS)
-// =============================================
-const API_BASE_URL = 'https://apiadministrador.upea.bo';
-const API_TOKEN = '130143e7a5de4f3524cae21a8f333b85e82a9ac037f111d9d1fbad23edecccc1';
-const INSTITUCION_ID = "35";
+interface PublicacionData {
+   publicaciones_id: number;
+   publicaciones_titulo: string;
+   publicaciones_imagen: string;
+   publicaciones_descripcion: string;
+   publicaciones_documento: string;
+   publicaciones_fecha: string;
+   publicaciones_autor: string;
+   publicaciones_tipo: string;
+}
 
 // =============================================
-// UTILIDADES (SIN CAMBIOS)
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
 // =============================================
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
+
+// =============================================
+// UTILIDADES - Manejo Inteligente de Imágenes
+// =============================================
+
+/**
+ * Construye URL completa para imágenes
+ * ✅ URL completa (http/https) → Retorna tal cual (MinIO o externo)
+ * ✅ Ruta relativa (/storage/...) → Agrega API_BASE_URL
+ * ✅ UUID/filename → Agrega carpeta según tipo
+ */
+const buildImageUrl = (
+  imagePath: string | null | undefined,
+  type: 'publicacion' | 'logo' | 'portada' | 'evento' | 'curso' | 'convocatoria' | 'gaceta' | 'autoridad' = 'publicacion'
+): string => {
+  if (!imagePath) return '/assets/img/placeholder-no-image.jpg';
+  
+  const cleanPath = imagePath.trim();
+  
+  // ✅ CASO 1: Ya es URL completa (MinIO o externo) → NO modificar
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    return cleanPath;
+  }
+  
+  // ✅ CASO 2: Ruta relativa /storage/... → Agregar API_BASE_URL
+  if (cleanPath.startsWith('/storage/')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+  
+  // ✅ CASO 3: UUID o filename → Construir URL con carpeta según tipo
+  const typeFolders: Record<string, string> = {
+    publicacion: '/storage/imagenes/publicaciones/',
+    logo: '/storage/imagenes/logos/',
+    portada: '/storage/imagenes/portadas/',
+    evento: '/storage/imagenes/eventos/',
+    curso: '/storage/imagenes/cursos/',
+    convocatoria: '/storage/imagenes/convocatorias/',
+    gaceta: '/storage/imagenes/gacetas/',
+    autoridad: '/storage/imagenes/autoridades/'
+  };
+  
+  const folder = typeFolders[type] || '/storage/imagenes/';
+  return `${API_BASE_URL}${folder}${cleanPath}`;
+};
+
 const sanitizeHtml = (html: string | null | undefined): string => {
    if (!html) return "";
    try {
@@ -43,70 +95,135 @@ const sanitizeHtml = (html: string | null | undefined): string => {
 };
 
 // =============================================
-// COMPONENTE - INTERFAZ CORREGIDA ✨
+// SERVICIO: Obtener publicaciones desde API
+// =============================================
+const getPublicaciones = async (institucionId: string) => {
+   try {
+      const url = `${API_BASE_URL}/api/v2/institucion/${institucionId}/recursos`;
+      
+      const headers: HeadersInit = {
+         'Content-Type': 'application/json',
+      };
+      
+      if (API_TOKEN) {
+         headers['Authorization'] = `Bearer ${API_TOKEN}`;
+      }
+      
+      const response = await fetch(url, {
+         method: 'GET',
+         headers,
+         cache: 'no-store'
+      });
+      
+      if (!response.ok) {
+         console.warn(`[About] Error ${response.status} al cargar publicaciones`);
+         return null;
+      }
+      
+      const data = await response.json();
+      return data?.upea_publicaciones || [];
+      
+   } catch (error) {
+      console.error('[About] Error fetching publicaciones:', error);
+      return null;
+   }
+};
+
+// =============================================
+// COMPONENTE PRINCIPAL
 // =============================================
 const About: React.FC = () => {
    const [institucion, setInstitucion] = useState<InstitucionData | null>(null);
+   const [perfilProfesional, setPerfilProfesional] = useState<PublicacionData | null>(null);
+   const [perfilImageUrl, setPerfilImageUrl] = useState<string>('/assets/img/placeholder-no-image.jpg');
    const [loading, setLoading] = useState<boolean>(true);
    const [error, setError] = useState<string | null>(null);
 
    // =============================================
-   // CARGA DE DATOS (SIN CAMBIOS)
+   // CARGA DE DATOS - API CON VARIABLES DE ENTORNO
    // =============================================
    useEffect(() => {
       let isMounted = true;
       
-      const fetchInstitucion = async () => {
+      const fetchData = async () => {
          try {
             setLoading(true);
             setError(null);
             
-            const url = `${API_BASE_URL}/api/v2/institucionesPrincipal/${INSTITUCION_ID}`;
-            const headers: HeadersInit = { 
+            console.log(`🔄 [About] API: ${API_BASE_URL}`);
+            console.log(`📋 Institución ID: ${INSTITUCION_ID}`);
+            
+            // 1. Fetch Institución
+            const institucionUrl = `${API_BASE_URL}/api/v2/institucionesPrincipal/${INSTITUCION_ID}`;
+            const institucionHeaders: HeadersInit = { 
                'Content-Type': 'application/json',
             };
             if (API_TOKEN) {
-               headers['Authorization'] = `Bearer ${API_TOKEN}`;
+               institucionHeaders['Authorization'] = `Bearer ${API_TOKEN}`;
             }
             
-            const response = await fetch(url, { 
+            const institucionRes = await fetch(institucionUrl, { 
                method: 'GET', 
-               headers,
+               headers: institucionHeaders,
                cache: 'no-store'
             });
             
-            if (response.ok) {
-               const result = await response.json();
+            if (institucionRes.ok) {
+               const result = await institucionRes.json();
                const datos = result?.Descripcion || result;
-               
                if (isMounted) setInstitucion(datos);
-            } else {
-               if (isMounted) setError(`Error ${response.status} al cargar datos`);
+            }
+            
+            // 2. Fetch Publicaciones para obtener "PERFIL PROFESIONAL"
+            const publicaciones = await getPublicaciones(INSTITUCION_ID);
+            
+            if (publicaciones && Array.isArray(publicaciones)) {
+               // ✅ Buscar publicación con título "PERFIL PROFESIONAL"
+               const perfil = publicaciones.find((pub: PublicacionData) => 
+                  pub.publicaciones_tipo?.toUpperCase().includes('PERFIL PROFESIONAL') ||
+                  pub.publicaciones_titulo?.toUpperCase().includes('PERFIL PROFESIONAL')
+               );
+               
+               if (perfil && isMounted) {
+                  setPerfilProfesional(perfil);
+                  
+                  // ✅ Construir URL de imagen inteligente
+                  const imageUrl = buildImageUrl(perfil.publicaciones_imagen, 'publicacion');
+                  console.log('🖼️ [About] Imagen de Perfil Profesional:', imageUrl);
+                  setPerfilImageUrl(imageUrl);
+               } else {
+                  console.log('ℹ️ [About] No se encontró "PERFIL PROFESIONAL" en publicaciones');
+                  if (isMounted) {
+                     setPerfilImageUrl('/assets/img/placeholder-no-image.jpg');
+                  }
+               }
             }
             
             setLoading(false);
             
          } catch (err: any) {
-            console.error("Error:", err?.message);
+            console.error("❌ [About] Error:", err?.message);
             if (isMounted) {
-               setError(err?.message || "Error de conexión");
+               setError(err?.message || "Error de conexión con el servidor");
                setLoading(false);
             }
          }
       };
 
-      fetchInstitucion();
+      fetchData();
       return () => { isMounted = false; };
       
    }, []);
 
    const sanitizedContent = useMemo(() => {
-      if (!institucion?.institucion_sobre_ins) return "";
-      return sanitizeHtml(institucion.institucion_sobre_ins);
-   }, [institucion?.institucion_sobre_ins]);
+      // ✅ Usar descripción de Perfil Profesional si existe, sino usar institucion_sobre_ins
+      const content = perfilProfesional?.publicaciones_descripcion || institucion?.institucion_sobre_ins;
+      if (!content) return "";
+      return sanitizeHtml(content);
+   }, [institucion?.institucion_sobre_ins, perfilProfesional?.publicaciones_descripcion]);
 
    // =============================================
-   // ESTILOS VISUALES - CORREGIDOS 🎨
+   // ESTILOS VISUALES
    // =============================================
    const aboutStyles = {
       section: {
@@ -199,7 +316,8 @@ const About: React.FC = () => {
          backdropFilter: 'blur(10px)',
          transition: 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
          height: '100%',
-         minHeight: '650px'
+         minHeight: '650px',
+         background: 'linear-gradient(135deg, rgba(253,28,10,0.1), rgba(250,178,101,0.1))'
       } as CSSProperties,
       imageOverlay: {
          position: 'absolute' as const,
@@ -222,6 +340,19 @@ const About: React.FC = () => {
          display: 'inline-flex',
          alignItems: 'center',
          gap: '8px'
+      } as CSSProperties,
+      noImagePlaceholder: {
+         position: 'absolute' as const,
+         top: 0, left: 0, right: 0, bottom: 0,
+         display: 'flex',
+         flexDirection: 'column' as const,
+         alignItems: 'center',
+         justifyContent: 'center',
+         background: 'rgba(5,5,4,0.8)',
+         color: 'rgba(255,255,255,0.7)',
+         zIndex: 2,
+         padding: '2rem',
+         textAlign: 'center' as const
       } as CSSProperties,
       profileTitle: {
          color: '#FAB265',
@@ -316,7 +447,7 @@ const About: React.FC = () => {
    };
 
    // =============================================
-   // RENDERIZADO - INTERFAZ CORREGIDA ✨
+   // RENDERIZADO
    // =============================================
    
    if (loading) {
@@ -338,7 +469,7 @@ const About: React.FC = () => {
                         Cargando Información
                      </h3>
                      <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '1.1rem' }}>
-                        Obteniendo datos de Sociología...
+                        Conectando con: {API_BASE_URL}
                      </p>
                   </div>
                </div>
@@ -370,6 +501,9 @@ const About: React.FC = () => {
                            ⚠️ Error al Cargar
                         </h3>
                         <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '1.05rem', marginBottom: '24px' }}>{error}</p>
+                        <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.9rem' }}>
+                           API: {API_BASE_URL} | Institución: {INSTITUCION_ID}
+                        </p>
                         <button 
                            onClick={() => window.location.reload()}
                            style={{
@@ -429,14 +563,14 @@ const About: React.FC = () => {
                </h6>
                
                <p style={aboutStyles.sectionDescription}>
-                  <i className="fa fa-graduation-cap me-2"></i>
-                  Conoce más sobre la Carrera de Sociología de la UPEA
+                  <i className="fa fa-database me-2"></i>
+                  API: {API_BASE_URL} | Institución: {INSTITUCION_ID}
                </p>
             </div>
             
             <div className="row align-items-stretch g-4">
                
-               {/* Columna de Imagen - MISMA ALTURA QUE EL CONTENIDO */}
+               {/* Columna de Imagen - PERFIL PROFESIONAL desde Publicaciones */}
                <div className="col-lg-6">
                   <div 
                      className="about-thumb-wrap" 
@@ -450,25 +584,44 @@ const About: React.FC = () => {
                         e.currentTarget.style.boxShadow = '0 30px 80px rgba(0,0,0,0.4)';
                      }}
                   >
-                     <Image 
-                        src="/assets/img/sociologia4.jpg" 
-                        alt="Sociología UPEA"
-                        fill
-                        style={{ 
-                           objectFit: 'cover',
-                           transition: 'transform 0.4s ease'
-                        }}
-                        onMouseEnter={(e: any) => {
-                           e.currentTarget.style.transform = 'scale(1.03)';
-                        }}
-                        onMouseLeave={(e: any) => {
-                           e.currentTarget.style.transform = 'scale(1)';
-                        }}
-                     />
-                     <div style={aboutStyles.imageOverlay} />
+                     {/* ✅ Imagen de Perfil Profesional desde Publicaciones */}
+                     {perfilImageUrl && perfilImageUrl !== '/assets/img/placeholder-no-image.jpg' ? (
+                        <>
+                           <Image 
+                              src={perfilImageUrl}
+                              alt={perfilProfesional?.publicaciones_titulo || "Perfil Profesional - Sociología UPEA"}
+                              fill
+                              style={{ 
+                                 objectFit: 'cover',
+                                 transition: 'transform 0.4s ease'
+                              }}
+                              // ✅ No optimizar si es URL externa (MinIO)
+                              unoptimized={perfilImageUrl.startsWith('http')}
+                              onError={(e) => {
+                                 const target = e.target as HTMLImageElement;
+                                 target.src = '/assets/img/placeholder-no-image.jpg';
+                              }}
+                              loading="lazy"
+                           />
+                           <div style={aboutStyles.imageOverlay} />
+                        </>
+                     ) : (
+                        /* ✅ Placeholder cuando NO hay imagen disponible */
+                        <div style={aboutStyles.noImagePlaceholder}>
+                           <i className="fa fa-image fa-3x mb-3" style={{ opacity: 0.5 }}></i>
+                           <p style={{ margin: 0, fontSize: '1rem' }}>
+                              <strong>No hay imagen disponible</strong>
+                           </p>
+                           <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.85rem', opacity: 0.7 }}>
+                              La imagen de Perfil Profesional se mostrará aquí cuando sea publicada.
+                           </p>
+                        </div>
+                     )}
+                     
+                     {/* Badge informativo */}
                      <div style={aboutStyles.imageBadge}>
-                        <i className="fa fa-award"></i>
-                        Carrera Acreditada
+                        <i className="fa fa-user-tie"></i>
+                        Perfil Profesional
                      </div>
                   </div>
                </div>
@@ -478,13 +631,13 @@ const About: React.FC = () => {
                   {institucion && (
                      <article style={aboutStyles.contentWrapper}>
                         
-                        {/* Perfil Profesional */}
+                        {/* Título dinámico desde publicaciones o fallback */}
                         <h3 style={aboutStyles.profileTitle}>
                            <i className="fa fa-user-tie"></i>
-                           PERFIL PROFESIONAL
+                           {perfilProfesional?.publicaciones_titulo || 'PERFIL PROFESIONAL'}
                         </h3>
                         
-                        {/* Contenido Sanitizado */}
+                        {/* Contenido Sanitizado - Prioriza descripción de publicación */}
                         <div 
                            className="content"
                            style={aboutStyles.content}

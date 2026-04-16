@@ -14,20 +14,52 @@ interface Gaceta {
 }
 
 // =============================================
-// CONSTANTES - SOLO ID 35 (SOCIOLOGÍA)
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
 // =============================================
-const API_BASE_URL = 'https://apiadministrador.upea.bo';
-const API_TOKEN = '130143e7a5de4f3524cae21a8f333b85e82a9ac037f111d9d1fbad23edecccc1';
-const INSTITUCION_ID = "35"; // ✅ SOLO SOCIOLOGÍA
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
 
 // =============================================
-// UTILIDADES
+// UTILIDADES - Manejo Inteligente de Documentos/PDFs
 // =============================================
-const buildDocumentUrl = (fileName: string): string => {
-   if (!fileName) return '#';
-   if (fileName.startsWith('http')) return fileName;
-   if (fileName.startsWith('/storage/')) return `${API_BASE_URL}${fileName}`;
-   return `${API_BASE_URL}${fileName}`;
+
+/**
+ * Construye URL completa para documentos y PDFs
+ * ✅ URL completa (http/https) → Retorna tal cual (MinIO, Google Drive, externo)
+ * ✅ Ruta relativa (/storage/...) → Agrega API_BASE_URL
+ * ✅ UUID/filename → Agrega carpeta de gacetas
+ */
+const buildDocumentUrl = (
+  documentPath: string | null | undefined,
+  type: 'gaceta' | 'curso' | 'evento' | 'convocatoria' | 'autoridad' | 'portada' = 'gaceta'
+): string => {
+  if (!documentPath) return '#';
+  
+  const cleanPath = documentPath.trim();
+  
+  // ✅ CASO 1: Ya es URL completa (MinIO, Google Drive, externo) → NO modificar
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    return cleanPath;
+  }
+  
+  // ✅ CASO 2: Ruta relativa /storage/... → Agregar API_BASE_URL
+  if (cleanPath.startsWith('/storage/')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+  
+  // ✅ CASO 3: UUID o filename → Construir URL con carpeta según tipo
+  const typeFolders: Record<string, string> = {
+    gaceta: '/storage/documentos/gacetas/',
+    curso: '/storage/documentos/cursos/',
+    evento: '/storage/documentos/eventos/',
+    convocatoria: '/storage/documentos/convocatorias/',
+    autoridad: '/storage/documentos/autoridades/',
+    portada: '/storage/documentos/portadas/'
+  };
+  
+  const folder = typeFolders[type] || '/storage/documentos/';
+  return `${API_BASE_URL}${folder}${cleanPath}`;
 };
 
 const formatDate = (dateString: string): string => {
@@ -40,7 +72,7 @@ const formatDate = (dateString: string): string => {
 };
 
 // =============================================
-// COMPONENTE - SOLO ID 35 ✨
+// COMPONENTE PRINCIPAL
 // =============================================
 const CourseArea: React.FC = () => {
    const [gacetas, setGacetas] = useState<Gaceta[]>([]);
@@ -52,12 +84,14 @@ const CourseArea: React.FC = () => {
          try {
             setLoading(true);
             setError(null);
-            console.log(`🔄 [Gacetas] Cargando desde ID ${INSTITUCION_ID} (Sociología)...`);
+            console.log(`🔄 [Gacetas] API: ${API_BASE_URL}`);
+            console.log(`📋 Institución ID: ${INSTITUCION_ID}`);
             
+            // ✅ LLAMADA CON VARIABLES DE ENTORNO
             const url = `${API_BASE_URL}/api/v2/institucion/${INSTITUCION_ID}/gacetaEventos`;
             const headers: HeadersInit = { 
                'Content-Type': 'application/json',
-               'Authorization': `Bearer ${API_TOKEN}`
+               ...(API_TOKEN && { 'Authorization': `Bearer ${API_TOKEN}` })
             };
             
             const response = await fetch(url, { method: 'GET', headers, cache: 'no-store' });
@@ -80,7 +114,7 @@ const CourseArea: React.FC = () => {
             setLoading(false);
          } catch (error) {
             console.error('❌ Error crítico cargando gacetas:', error);
-            setError('Error de conexión');
+            setError('Error de conexión con el servidor');
             setLoading(false);
          }
       };
@@ -89,7 +123,7 @@ const CourseArea: React.FC = () => {
    }, []);
 
    // =============================================
-   // ESTILOS VISUALES - FONDO OSCURO INSTITUCIONAL 🎨
+   // ESTILOS VISUALES
    // =============================================
    const courseStyles = {
       section: {
@@ -157,7 +191,7 @@ const CourseArea: React.FC = () => {
          borderRadius: '20px',
          boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
          border: '2px solid rgba(250,178,101,0.2)',
-         overflow: 'hidden',
+         overflow: 'hidden' as const,
          transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
          backdropFilter: 'blur(10px)',
          height: '100%',
@@ -271,7 +305,7 @@ const CourseArea: React.FC = () => {
                   Cargando Gacetas
                </h3>
                <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '1.1rem' }}>
-                  Obteniendo gacetas de Sociología...
+                  Conectando con: {API_BASE_URL}
                </p>
             </div>
          </section>
@@ -295,6 +329,9 @@ const CourseArea: React.FC = () => {
                            ⚠️ Error al Cargar
                         </h3>
                         <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '1.05rem', marginBottom: '24px' }}>{error}</p>
+                        <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.9rem' }}>
+                           API: {API_BASE_URL} | Institución: {INSTITUCION_ID}
+                        </p>
                         <button 
                            onClick={() => window.location.reload()}
                            style={{
@@ -332,15 +369,11 @@ const CourseArea: React.FC = () => {
 
    return (
       <section className="course-area pd-top-120 pd-bottom-90" style={courseStyles.section}>
-         {/* Elemento decorativo de fondo */}
          <div style={courseStyles.decorativeBg} />
          
          <div className="container" style={{ position: 'relative', zIndex: 1 }}>
-            
-            {/* Header de Sección */}
             <div className="row justify-content-center mb-5" style={courseStyles.header}>
                <div className="col-lg-8 text-center">
-                  
                   <h2 className="title" style={courseStyles.sectionTitle}>
                      GACETA UNIVERSITARIA
                      <span style={courseStyles.titleLine} />
@@ -352,10 +385,9 @@ const CourseArea: React.FC = () => {
                   </h6>
                   
                   <p style={courseStyles.sectionDescription}>
-                     <i className="fa fa-graduation-cap me-2"></i>
-                     Fuente: Sociología (ID {INSTITUCION_ID})
+                     <i className="fa fa-database me-2"></i>
+                     API: {API_BASE_URL} | Institución: {INSTITUCION_ID}
                   </p>
-                  
                </div>
             </div>
 
@@ -380,67 +412,70 @@ const CourseArea: React.FC = () => {
                </div>
             ) : (
                <div className="row g-4">
-                  {gacetas.map((gaceta) => (
-                     <div key={gaceta.gaceta_id} className="col-lg-4 col-md-6">
-                        <article 
-                           style={courseStyles.card}
-                           onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, courseStyles.cardHover)}
-                           onMouseLeave={(e: any) => {
-                              Object.assign(e.currentTarget.style, {
-                                 transform: 'translateY(0)',
-                                 boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-                                 borderColor: 'rgba(250,178,101,0.2)',
-                                 background: 'rgba(255,255,255,0.08)'
-                              });
-                           }}
-                        >
-                           <div style={courseStyles.content}>
-                              
-                              {/* Ícono PDF */}
-                              <div style={courseStyles.iconBox}>
-                                 <i className="fa fa-file-pdf-o fa-2x" style={{ color: '#FFFFFF' }}></i>
-                              </div>
-                              
-                              {/* Título */}
-                              <h5 style={courseStyles.title}>
-                                 {gaceta.gaceta_titulo}
-                              </h5>
-                              
-                              {/* Fecha */}
-                              <div style={courseStyles.infoBox}>
-                                 <i className="fa fa-calendar" style={{ color: '#FAB265' }}></i>
-                                 <strong>Fecha:</strong> {formatDate(gaceta.gaceta_fecha)}
-                              </div>
-                              
-                              {/* Tipo */}
-                              {gaceta.gaceta_tipo && (
-                                 <div style={courseStyles.infoBox}>
-                                    <i className="fa fa-tag" style={{ color: '#FAB265' }}></i>
-                                    <strong>Tipo:</strong> {gaceta.gaceta_tipo}
+                  {gacetas.map((gaceta) => {
+                     // ✅ Construir URL de documento inteligente
+                     const documentUrl = buildDocumentUrl(gaceta.gaceta_documento, 'gaceta');
+                     
+                     return (
+                        <div key={gaceta.gaceta_id} className="col-lg-4 col-md-6">
+                           <article 
+                              style={courseStyles.card}
+                              onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, courseStyles.cardHover)}
+                              onMouseLeave={(e: any) => {
+                                 Object.assign(e.currentTarget.style, {
+                                    transform: 'translateY(0)',
+                                    boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+                                    borderColor: 'rgba(250,178,101,0.2)',
+                                    background: 'rgba(255,255,255,0.08)'
+                                 });
+                              }}
+                           >
+                              <div style={courseStyles.content}>
+                                 
+                                 {/* Ícono PDF */}
+                                 <div style={courseStyles.iconBox}>
+                                    <i className="fa fa-file-pdf-o fa-2x" style={{ color: '#FFFFFF' }}></i>
                                  </div>
-                              )}
-                              
-                              {/* Botón Descargar */}
-                              <a 
-                                 href={buildDocumentUrl(gaceta.gaceta_documento)}
-                                 target="_blank"
-                                 rel="noopener noreferrer"
-                                 style={courseStyles.button}
-                                 onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, courseStyles.buttonHover)}
-                                 onMouseLeave={(e: any) => Object.assign(e.currentTarget.style, courseStyles.button)}
-                              >
-                                 <i className="fa fa-download"></i> Descargar PDF
-                              </a>
-                              
-                           </div>
-                        </article>
-                     </div>
-                  ))}
+                                 
+                                 {/* Título */}
+                                 <h5 style={courseStyles.title}>
+                                    {gaceta.gaceta_titulo}
+                                 </h5>
+                                 
+                                 {/* Fecha */}
+                                 <div style={courseStyles.infoBox}>
+                                    <i className="fa fa-calendar" style={{ color: '#FAB265' }}></i>
+                                    <strong>Fecha:</strong> {formatDate(gaceta.gaceta_fecha)}
+                                 </div>
+                                 
+                                 {/* Tipo */}
+                                 {gaceta.gaceta_tipo && (
+                                    <div style={courseStyles.infoBox}>
+                                       <i className="fa fa-tag" style={{ color: '#FAB265' }}></i>
+                                       <strong>Tipo:</strong> {gaceta.gaceta_tipo}
+                                    </div>
+                                 )}
+                                 
+                                 {/* Botón Descargar */}
+                                 <a 
+                                    href={documentUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={courseStyles.button}
+                                    onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, courseStyles.buttonHover)}
+                                    onMouseLeave={(e: any) => Object.assign(e.currentTarget.style, courseStyles.button)}
+                                 >
+                                    <i className="fa fa-download"></i> Descargar PDF
+                                 </a>
+                              </div>
+                           </article>
+                        </div>
+                     );
+                  })}
                </div>
             )}
          </div>
          
-         {/* CSS Global para animaciones */}
          <style jsx global>{`
             @keyframes spin {
                from { transform: rotate(0deg); }

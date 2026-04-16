@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image'; // ✅ IMPORTANTE: Asegurar import de Image
 import { CSSProperties } from 'react';
 
 // ✅ IMPORTAR HEADER Y FOOTER CON RUTAS RELATIVAS
@@ -30,33 +31,90 @@ interface PortadaData {
 }
 
 // =============================================
-// CONSTANTES - SOLO ID 35 (SOCIOLOGÍA) - URLs DIRECTAS SIN PROXY
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
 // =============================================
-const API_BASE_URL = 'https://apiadministrador.upea.bo';
-const API_TOKEN = '130143e7a5de4f3524cae21a8f333b85e82a9ac037f111d9d1fbad23edecccc1';
-const INSTITUCION_ID = "35";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
 
 // ✅ IDs DE PORTADAS ALEATORIAS (238, 239, 240)
 const PORTADA_IDS_RANDOM = [238, 239, 240];
 
 // =============================================
-// UTILIDADES
+// UTILIDADES - Manejo Inteligente de Imágenes
 // =============================================
-const buildImageUrl = (fileName: string | null | undefined): string => {
-   if (!fileName) return '/images/placeholder-offer.jpg';
-   const cleanName = fileName.trim();
-   if (cleanName.startsWith('http')) return cleanName;
-   if (cleanName.startsWith('/storage/')) return `${API_BASE_URL}${cleanName}`;
-   return `${API_BASE_URL}${cleanName}`;
+
+/**
+ * Construye URL completa para imágenes de ofertas
+ * ✅ URL completa (http/https) → Retorna tal cual (MinIO o externo)
+ * ✅ Ruta relativa (/storage/...) → Agrega API_BASE_URL
+ * ✅ UUID/filename → Agrega carpeta de ofertas
+ */
+const buildImageUrl = (
+  imagePath: string | null | undefined,
+  type: 'oferta' | 'portada' | 'evento' | 'curso' | 'convocatoria' | 'gaceta' | 'autoridad' = 'oferta'
+): string => {
+  if (!imagePath) return '/images/placeholder-offer.jpg';
+  
+  const cleanPath = imagePath.trim();
+  
+  // ✅ CASO 1: Ya es URL completa (MinIO o externo) → NO modificar
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    return cleanPath;
+  }
+  
+  // ✅ CASO 2: Ruta relativa /storage/... → Agregar API_BASE_URL
+  if (cleanPath.startsWith('/storage/')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+  
+  // ✅ CASO 3: UUID o filename → Construir URL con carpeta según tipo
+  const typeFolders: Record<string, string> = {
+    oferta: '/storage/imagenes/ofertas/',
+    portada: '/storage/imagenes/portadas/',
+    evento: '/storage/imagenes/eventos/',
+    curso: '/storage/imagenes/cursos/',
+    convocatoria: '/storage/imagenes/convocatorias/',
+    gaceta: '/storage/imagenes/gacetas/',
+    autoridad: '/storage/imagenes/autoridades/'
+  };
+  
+  const folder = typeFolders[type] || '/storage/imagenes/';
+  return `${API_BASE_URL}${folder}${cleanPath}`;
 };
 
 // ✅ CONSTRUIR URL DE PORTADA DESDE API
-const buildPortadaUrl = (imagenPath: string | null | undefined): string => {
-   if (!imagenPath) return '/assets/img/sociologia3.jpg';
-   const cleanPath = imagenPath.trim();
-   if (cleanPath.startsWith('http')) return cleanPath;
-   if (cleanPath.startsWith('/storage/')) return `${API_BASE_URL}${cleanPath}`;
-   return `${API_BASE_URL}/storage/imagenes/portadas/${cleanPath}`;
+const buildPortadaUrl = (
+  imagenPath: string | null | undefined,
+  type: 'portada' | 'oferta' | 'evento' | 'curso' | 'convocatoria' | 'gaceta' | 'autoridad' = 'portada'
+): string => {
+  if (!imagenPath) return '/assets/img/sociologia3.jpg';
+  
+  const cleanPath = imagenPath.trim();
+  
+  // ✅ CASO 1: Ya es URL completa (MinIO o externo) → NO modificar
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    return cleanPath;
+  }
+  
+  // ✅ CASO 2: Ruta relativa /storage/... → Agregar API_BASE_URL
+  if (cleanPath.startsWith('/storage/')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+  
+  // ✅ CASO 3: UUID o filename → Construir URL con carpeta según tipo
+  const typeFolders: Record<string, string> = {
+    portada: '/storage/imagenes/portadas/',
+    oferta: '/storage/imagenes/ofertas/',
+    evento: '/storage/imagenes/eventos/',
+    curso: '/storage/imagenes/cursos/',
+    convocatoria: '/storage/imagenes/convocatorias/',
+    gaceta: '/storage/imagenes/gacetas/',
+    autoridad: '/storage/imagenes/autoridades/'
+  };
+  
+  const folder = typeFolders[type] || '/storage/imagenes/';
+  return `${API_BASE_URL}${folder}${cleanPath}`;
 };
 
 // ✅ FUNCIÓN PARA SELECCIONAR PORTADA RANDOM (IDs 238-240)
@@ -89,48 +147,52 @@ const HeroBanner: React.FC = () => {
    useEffect(() => {
       const fetchPortada = async () => {
          try {
-            console.log('🔄 [OfferArea] Cargando portada desde:', 
-               `${API_BASE_URL}/api/v2/institucion/${INSTITUCION_ID}/contenido`);
+            console.log('🔄 [HeroBanner] API:', API_BASE_URL);
+            console.log('📋 Institución ID:', INSTITUCION_ID);
             
-            const response = await fetch(
-               `${API_BASE_URL}/api/v2/institucion/${INSTITUCION_ID}/contenido`,
-               {
-                  method: 'GET',
-                  headers: {
-                     'Content-Type': 'application/json',
-                     'Authorization': `Bearer ${API_TOKEN}`
-                  },
-                  cache: 'no-store'
-               }
-            );
+            // ✅ URL y headers con variables de entorno
+            const url = `${API_BASE_URL}/api/v2/institucion/${INSTITUCION_ID}/contenido`;
+            const headers: HeadersInit = {
+               'Content-Type': 'application/json',
+            };
+            if (API_TOKEN) {
+               headers['Authorization'] = `Bearer ${API_TOKEN}`;
+            }
+            
+            const response = await fetch(url, {
+               method: 'GET',
+               headers,
+               cache: 'no-store'
+            });
             
             if (response.ok) {
                const result = await response.json();
                const portadaArray = result?.portada || [];
                
-               console.log('📊 [OfferArea] Total portadas:', portadaArray.length);
+               console.log('📊 [HeroBanner] Total portadas:', portadaArray.length);
                
                const portadaRandom = getRandomPortada(portadaArray);
                
                if (portadaRandom) {
-                  console.log('🎲 [OfferArea] Portada seleccionada (random):', {
+                  console.log('🎲 [HeroBanner] Portada seleccionada (random):', {
                      id: portadaRandom.portada_id,
                      titulo: portadaRandom.portada_titulo
                   });
                   
-                  const fullUrl = buildPortadaUrl(portadaRandom.portada_imagen);
-                  console.log('🖼️ [OfferArea] Portada cargada:', fullUrl);
+                  // ✅ Construir URL de portada inteligente
+                  const fullUrl = buildPortadaUrl(portadaRandom.portada_imagen, 'portada');
+                  console.log('🖼️ [HeroBanner] Portada cargada:', fullUrl);
                   setPortadaUrl(fullUrl);
                } else {
-                  console.warn('⚠️ [OfferArea] No se encontraron portadas con IDs 238-240, usando fallback');
+                  console.warn('⚠️ [HeroBanner] No se encontraron portadas con IDs 238-240, usando fallback');
                   setPortadaUrl('/assets/img/sociologia3.jpg');
                }
             } else {
-               console.warn(`⚠️ [OfferArea] Error ${response.status}, usando fallback`);
+               console.warn(`⚠️ [HeroBanner] Error ${response.status}, usando fallback`);
                setPortadaUrl('/assets/img/sociologia3.jpg');
             }
          } catch (error) {
-            console.error('❌ [OfferArea] Error cargando portada:', error);
+            console.error('❌ [HeroBanner] Error cargando portada:', error);
             setPortadaUrl('/assets/img/sociologia3.jpg');
          }
       };
@@ -248,15 +310,17 @@ const OfferArea: React.FC = () => {
    useEffect(() => {
       const fetchOfertas = async () => {
          try {
-            setLoading(true);
-            setError(null);
-            console.log(`🔄 [Ofertas] Cargando desde ID ${INSTITUCION_ID} (Sociología)...`);
+            console.log('🔄 [OfferArea] API:', API_BASE_URL);
+            console.log('📋 Institución ID:', INSTITUCION_ID);
             
+            // ✅ URL y headers con variables de entorno
             const url = `${API_BASE_URL}/api/v2/institucion/${INSTITUCION_ID}/gacetaEventos`;
             const headers: HeadersInit = { 
                'Content-Type': 'application/json',
-               'Authorization': `Bearer ${API_TOKEN}`
             };
+            if (API_TOKEN) {
+               headers['Authorization'] = `Bearer ${API_TOKEN}`;
+            }
             
             const response = await fetch(url, { method: 'GET', headers, cache: 'no-store' });
             
@@ -264,7 +328,7 @@ const OfferArea: React.FC = () => {
                const data = await response.json();
                const ofertasData = data.ofertasAcademicas || [];
                
-               console.log('✅ [Ofertas] Datos cargados:', {
+               console.log('✅ [OfferArea] Ofertas cargadas:', {
                   total: ofertasData.length,
                   fuente: `Sociología (ID ${INSTITUCION_ID})`
                });
@@ -276,9 +340,9 @@ const OfferArea: React.FC = () => {
             }
             
             setLoading(false);
-         } catch (error) {
-            console.error('❌ Error crítico cargando ofertas:', error);
-            setError('Error de conexión');
+         } catch (error: any) {
+            console.error('❌ Error crítico cargando ofertas:', error?.message);
+            setError(error?.message || 'Error de conexión con el servidor');
             setLoading(false);
          }
       };
@@ -287,7 +351,7 @@ const OfferArea: React.FC = () => {
    }, []);
 
    // =============================================
-   // ESTILOS VISUALES - RESPONSIVE 🎨
+   // ESTILOS VISUALES
    // =============================================
    const offerStyles = {
       section: {
@@ -443,7 +507,7 @@ const OfferArea: React.FC = () => {
                      Cargando Ofertas
                   </h3>
                   <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '1.1rem' }}>
-                     Obteniendo ofertas académicas de Sociología...
+                     Conectando con: {API_BASE_URL}
                   </p>
                </div>
             </section>
@@ -472,6 +536,9 @@ const OfferArea: React.FC = () => {
                               ⚠️ Error al Cargar
                            </h3>
                            <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '1.05rem', marginBottom: '24px' }}>{error}</p>
+                           <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.9rem', marginBottom: '24px' }}>
+                              API: {API_BASE_URL} | ID: {INSTITUCION_ID}
+                           </p>
                            <button 
                               onClick={() => window.location.reload()}
                               style={{
@@ -521,72 +588,115 @@ const OfferArea: React.FC = () => {
                
                {/* Grid de Ofertas - RESPONSIVE */}
                <div className="row g-4">
-                  {ofertas.map((oferta) => (
-                     <div key={oferta.ofertas_id} className="col-lg-4 col-md-6 col-sm-12">
-                        <article 
-                           style={offerStyles.card}
-                           onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, offerStyles.cardHover)}
-                           onMouseLeave={(e: any) => {
-                              Object.assign(e.currentTarget.style, {
-                                 transform: 'translateY(0)',
-                                 boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-                                 borderColor: 'rgba(250,178,101,0.2)',
-                                 background: 'rgba(255,255,255,0.08)'
-                              });
-                           }}
-                        >
-                           <div style={offerStyles.imageWrapper}>
-                              <img
-                                 src={buildImageUrl(oferta.ofertas_imagen)}
-                                 alt={oferta.ofertas_titulo}
-                                 style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.4s ease' }}
-                                 onMouseEnter={(e: any) => e.currentTarget.style.transform = 'scale(1.1)'}
-                                 onMouseLeave={(e: any) => e.currentTarget.style.transform = 'scale(1)'}
-                              />
-                              <span style={offerStyles.badge}>
-                                 <i className="fa fa-star"></i> Oferta
-                              </span>
-                           </div>
-                           
-                           <div style={offerStyles.content}>
-                              <h5 style={offerStyles.title}>
-                                 {oferta.ofertas_titulo}
-                              </h5>
-                              
-                              {oferta.ofertas_inscripciones_ini && (
-                                 <div style={offerStyles.infoBox}>
-                                    <i className="fa fa-calendar" style={{ color: '#FAB265' }}></i>
-                                    <strong>Inscripción Inicio:</strong> {formatDate(oferta.ofertas_inscripciones_ini)}
-                                 </div>
-                              )}
-                              
-                              {oferta.ofertas_inscripciones_fin && (
-                                 <div style={offerStyles.infoBox}>
-                                    <i className="fa fa-calendar-check-o" style={{ color: '#28a745' }}></i>
-                                    <strong>Inscripción Fin:</strong> {formatDate(oferta.ofertas_inscripciones_fin)}
-                                 </div>
-                              )}
-                              
-                              {oferta.ofertas_fecha_examen && (
-                                 <div style={offerStyles.infoBox}>
-                                    <i className="fa fa-file-text-o" style={{ color: '#17a2b8' }}></i>
-                                    <strong>Examen:</strong> {formatDate(oferta.ofertas_fecha_examen)}
-                                 </div>
-                              )}
-                              
-                              <Link 
-                                 href={`/offers/${oferta.ofertas_id}`}
-                                 style={offerStyles.button}
-                                 onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, offerStyles.buttonHover)}
-                                 onMouseLeave={(e: any) => Object.assign(e.currentTarget.style, offerStyles.button)}
-                              >
-                                 Ver más detalles <i className="fa fa-arrow-right"></i>
-                              </Link>
-                              
-                           </div>
-                        </article>
+                  {ofertas.length === 0 ? (
+                     <div className="col-12 text-center">
+                        <div style={offerStyles.emptyState}>
+                           <i className="fa fa-graduation-cap" style={{ 
+                              fontSize: '4rem', 
+                              color: '#FAB265',
+                              marginBottom: '20px',
+                              opacity: 0.6,
+                              display: 'block'
+                           }}></i>
+                           <h3 style={{ color: '#FFFFFF', fontWeight: 700, marginBottom: '12px' }}>
+                              Sin Ofertas Disponibles
+                           </h3>
+                           <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '1.05rem' }}>
+                              Las ofertas académicas se mostrarán aquí cuando estén disponibles.
+                           </p>
+                           <p className="text-muted small mt-2">
+                              API: {API_BASE_URL} | ID: {INSTITUCION_ID}
+                           </p>
+                        </div>
                      </div>
-                  ))}
+                  ) : (
+                     ofertas.map((oferta) => {
+                        // ✅ Construir URL de imagen inteligente
+                        const imageUrl = buildImageUrl(oferta.ofertas_imagen, 'oferta');
+                        const isExternalImage = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+                        
+                        return (
+                           <div key={oferta.ofertas_id} className="col-lg-4 col-md-6 col-sm-12">
+                              <article 
+                                 style={offerStyles.card}
+                                 onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, offerStyles.cardHover)}
+                                 onMouseLeave={(e: any) => {
+                                    Object.assign(e.currentTarget.style, {
+                                       transform: 'translateY(0)',
+                                       boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+                                       borderColor: 'rgba(250,178,101,0.2)',
+                                       background: 'rgba(255,255,255,0.08)'
+                                    });
+                                 }}
+                              >
+                                 <div style={offerStyles.imageWrapper}>
+                                    {/* ✅ REEMPLAZADO: <img> → <Image /> de Next.js */}
+                                    <Image
+                                       src={imageUrl}
+                                       alt={oferta.ofertas_titulo}
+                                       width={500}
+                                       height={300}
+                                       style={{ 
+                                          width: '100%', 
+                                          height: '100%', 
+                                          objectFit: 'cover',
+                                          transition: 'transform 0.4s ease' 
+                                       }}
+                                       // ✅ No optimizar si es URL externa (MinIO)
+                                       unoptimized={isExternalImage}
+                                       // ✅ Fallback si la imagen falla
+                                       onError={(e) => {
+                                          const target = e.target as HTMLImageElement;
+                                          target.src = '/images/placeholder-offer.jpg';
+                                       }}
+                                       loading="lazy"
+                                    />
+                                    <span style={offerStyles.badge}>
+                                       <i className="fa fa-star"></i> Oferta
+                                    </span>
+                                 </div>
+                                 
+                                 <div style={offerStyles.content}>
+                                    <h5 style={offerStyles.title}>
+                                       {oferta.ofertas_titulo}
+                                    </h5>
+                                    
+                                    {oferta.ofertas_inscripciones_ini && (
+                                       <div style={offerStyles.infoBox}>
+                                          <i className="fa fa-calendar" style={{ color: '#FAB265' }}></i>
+                                          <strong>Inscripción Inicio:</strong> {formatDate(oferta.ofertas_inscripciones_ini)}
+                                       </div>
+                                    )}
+                                    
+                                    {oferta.ofertas_inscripciones_fin && (
+                                       <div style={offerStyles.infoBox}>
+                                          <i className="fa fa-calendar-check-o" style={{ color: '#28a745' }}></i>
+                                          <strong>Inscripción Fin:</strong> {formatDate(oferta.ofertas_inscripciones_fin)}
+                                       </div>
+                                    )}
+                                    
+                                    {oferta.ofertas_fecha_examen && (
+                                       <div style={offerStyles.infoBox}>
+                                          <i className="fa fa-file-text-o" style={{ color: '#17a2b8' }}></i>
+                                          <strong>Examen:</strong> {formatDate(oferta.ofertas_fecha_examen)}
+                                       </div>
+                                    )}
+                                    
+                                    <Link 
+                                       href={`/offers/${oferta.ofertas_id}`}
+                                       style={offerStyles.button}
+                                       onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, offerStyles.buttonHover)}
+                                       onMouseLeave={(e: any) => Object.assign(e.currentTarget.style, offerStyles.button)}
+                                    >
+                                       Ver más detalles <i className="fa fa-arrow-right"></i>
+                                    </Link>
+                                    
+                                 </div>
+                              </article>
+                           </div>
+                        );
+                     })
+                  )}
                </div>
             </div>
             

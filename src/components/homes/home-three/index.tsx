@@ -13,7 +13,7 @@ import Brand from "./Brand"
 import Blog from "../home-two/Blog"
 import FooterTwo from "@/layouts/footers/FooterTwo"
 
-import "../../../../public/assets/css/color.css"
+
 
 const HomeThree = () => {
   return (
@@ -27,10 +27,10 @@ const HomeThree = () => {
       <Counter />
       <AboutThree />
       <Testimonial style={false} />
-      <Team style={false} />
+
       <Faq />
       <Brand />
-      <Blog style={true} />
+
       <FooterTwo />
     </div>
   )

@@ -1,60 +1,87 @@
 "use client";
 import { useEffect, useState } from "react";
-import Image from "next/image";
-import DOMPurify from "dompurify";
 
 // =============================================
-// INTERFACES
+// INTERFACES - SOLO PARA VIDEOS
 // =============================================
-interface InstitucionData {
-   institucion_id: number;
-   institucion_nombre: string;
-   institucion_sobre_ins: string;
-   institucion_logo: string;
+interface VideoData {
+   video_id: number;
+   video_enlace: string;
+   video_titulo: string;
+   video_breve_descripcion: string;
+   video_estado: number;
+   video_tipo: string;
+}
+
+interface ContenidoResponse {
+   upea_videos?: VideoData[];
+   [key: string]: any;
 }
 
 // =============================================
-// CONSTANTES - API DEL NUEVO SERVICIO
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
 // =============================================
-const API_BASE_URL = 'https://apiadministrador.upea.bo';
-const API_TOKEN = '130143e7a5de4f3524cae21a8f333b85e82a9ac037f111d9d1fbad23edecccc1';
-const INSTITUCION_ID = "35";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
 
 // =============================================
-// UTILIDADES
+// UTILIDADES - Manejo de URLs de YouTube
 // =============================================
-const sanitizeHtml = (html: string): string => {
-   try {
-      return DOMPurify.sanitize(html, {
-         ALLOWED_TAGS: ['p', 'strong', 'em', 'ul', 'ol', 'li', 'br', 'span'],
-         ALLOWED_ATTR: ['class', 'style']
-      });
-   } catch (error) {
-      console.error('Error sanitizando HTML:', error);
-      return html.replace(/<script[^>]*>.*?<\/script>/gi, '')
-                 .replace(/on\w+="[^"]*"/gi, '')
-                 .replace(/javascript:/gi, '');
-   }
+
+/**
+ * Convierte URL de YouTube a formato embed para iframe
+ * ✅ https://www.youtube.com/watch?v=ABC123 → https://www.youtube.com/embed/ABC123
+ * ✅ https://youtu.be/ABC123 → https://www.youtube.com/embed/ABC123
+ * ✅ Ya es embed → Retorna tal cual
+ */
+const getYouTubeEmbedUrl = (videoUrl: string): string => {
+  if (!videoUrl) return '';
+  
+  const cleanUrl = videoUrl.trim();
+  
+  // ✅ Si ya es formato embed, retornar tal cual
+  if (cleanUrl.includes('/embed/')) {
+    return cleanUrl;
+  }
+  
+  // ✅ Extraer video ID de formato watch?v=
+  const watchMatch = cleanUrl.match(/[?&]v=([^&]+)/);
+  if (watchMatch && watchMatch[1]) {
+    return `https://www.youtube.com/embed/${watchMatch[1]}?rel=0&modestbranding=1&autoplay=0`;
+  }
+  
+  // ✅ Extraer video ID de formato youtu.be/
+  const shortMatch = cleanUrl.match(/youtu\.be\/([^?&]+)/);
+  if (shortMatch && shortMatch[1]) {
+    return `https://www.youtube.com/embed/${shortMatch[1]}?rel=0&modestbranding=1&autoplay=0`;
+  }
+  
+  // ✅ Fallback: retornar URL original si no se puede convertir
+  return cleanUrl;
 };
 
 // =============================================
-// COMPONENTE - API + LAYOUT MEJORADO ✨
+// COMPONENTE PRINCIPAL - SOLO VIDEOS ✨
 // =============================================
-const Testimonial = () => {
+const Testimonial: React.FC = () => {
    
-   const [institucion, setInstitucion] = useState<InstitucionData | null>(null);
+   const [videos, setVideos] = useState<VideoData[]>([]);
    const [loading, setLoading] = useState<boolean>(true);
-   const [sanitizedContent, setSanitizedContent] = useState<string>("");
+   const [error, setError] = useState<string | null>(null);
 
    // =============================================
-   // CARGAR DATOS DESDE API
+   // CARGAR SOLO VIDEOS DESDE API /contenido
    // =============================================
    useEffect(() => {
-      const fetchInstitucionData = async () => {
+      const fetchVideos = async () => {
          try {
-            console.log('🔄 [Testimonial] Cargando perfil profesional desde API...');
+            console.log('🔄 [Testimonial] API:', API_BASE_URL);
+            console.log('📋 Institución ID:', INSTITUCION_ID);
+            console.log('🎬 Fetching videos desde: /api/v2/institucion/${INSTITUCION_ID}/contenido');
             
-            const url = `${API_BASE_URL}/api/v2/institucionesPrincipal/${INSTITUCION_ID}`;
+            // ✅ SOLO fetch al endpoint /contenido para obtener upea_videos
+            const url = `${API_BASE_URL}/api/v2/institucion/${INSTITUCION_ID}/contenido`;
             const headers: HeadersInit = { 
                'Content-Type': 'application/json',
             };
@@ -69,38 +96,42 @@ const Testimonial = () => {
             });
             
             if (response.ok) {
-               const result = await response.json();
-               const datos = result?.Descripcion || result;
+               const data: ContenidoResponse = await response.json();
                
-               console.log('✅ [Testimonial] Datos cargados:', {
-                  nombre: datos.institucion_nombre,
-                  tienePerfil: !!datos.institucion_sobre_ins
+               // ✅ Extraer SOLO upea_videos activos
+               const videosActivos = (data.upea_videos || [])
+                  .filter((video: VideoData) => video.video_estado === 1);
+               
+               console.log('✅ [Testimonial] Videos cargados:', {
+                  total: videosActivos.length,
+                  videos: videosActivos.map((v: VideoData) => ({
+                     id: v.video_id,
+                     titulo: v.video_titulo,
+                     embed: getYouTubeEmbedUrl(v.video_enlace)
+                  }))
                });
                
-               setInstitucion(datos);
-               
-               // Sanitizar y preparar el contenido HTML
-               if (datos.institucion_sobre_ins) {
-                  const clean = sanitizeHtml(datos.institucion_sobre_ins);
-                  setSanitizedContent(clean);
-               }
+               setVideos(videosActivos);
             } else {
-               console.warn('⚠️ [Testimonial] Error en la respuesta:', response.status);
+               console.warn(`⚠️ [Testimonial] Error ${response.status} al cargar videos`);
+               setVideos([]);
             }
             
             setLoading(false);
             
-         } catch (error) {
-            console.error('❌ [Testimonial] Error cargando datos:', error);
+         } catch (err: any) {
+            console.error('❌ [Testimonial] Error cargando videos:', err?.message);
+            setError(err?.message || 'Error de conexión con el servidor');
+            setVideos([]);
             setLoading(false);
          }
       };
       
-      fetchInstitucionData();
+      fetchVideos();
    }, []);
 
    // =============================================
-   // ESTILOS VISUALES - COLORES INSTITUCIONALES 🎨
+   // ESTILOS VISUALES - SOLO PARA VIDEOS 🎬
    // =============================================
    const testimonialStyles = {
       section: {
@@ -133,69 +164,9 @@ const Testimonial = () => {
          position: 'relative' as const,
          zIndex: 1
       },
-      contentWrapper: {
-         display: 'flex',
-         alignItems: 'stretch',
-         gap: '50px',
-         flexWrap: 'wrap' as const
-      },
-      imageColumn: {
-         flex: '0 0 45%',
-         maxWidth: '45%'
-      },
-      imageWrapper: {
-         position: 'relative' as const,
-         borderRadius: '24px',
-         overflow: 'hidden',
-         boxShadow: '0 30px 80px rgba(0,0,0,0.4)',
-         border: '4px solid rgba(250,178,101,0.3)',
-         backdropFilter: 'blur(10px)',
-         height: '100%',
-         minHeight: '500px'
-      },
-      imageOverlay: {
-         position: 'absolute' as const,
-         top: 0, left: 0, right: 0, bottom: 0,
-         background: 'linear-gradient(180deg, transparent 0%, rgba(5,5,4,0.7) 100%)',
-         zIndex: 1
-      },
-      imageBadge: {
-         position: 'absolute' as const,
-         bottom: '24px',
-         left: '24px',
-         background: 'linear-gradient(135deg, #FAB265, #FFD700)',
-         color: '#050504',
-         padding: '12px 20px',
-         borderRadius: '12px',
-         fontWeight: 700,
-         fontSize: '0.9rem',
-         zIndex: 2,
-         boxShadow: '0 8px 24px rgba(250,178,101,0.4)',
-         display: 'inline-flex',
-         alignItems: 'center',
-         gap: '8px'
-      },
-      contentColumn: {
-         flex: '0 0 50%',
-         maxWidth: '50%',
-         display: 'flex',
-         flexDirection: 'column' as const
-      },
-      cardWrapper: {
-         background: 'rgba(255,255,255,0.05)',
-         borderRadius: '24px',
-         padding: '48px',
-         border: '2px solid rgba(250,178,101,0.2)',
-         backdropFilter: 'blur(20px)',
-         boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-         flex: 1,
-         display: 'flex',
-         flexDirection: 'column' as const
-      },
       headerSection: {
-         marginBottom: '32px',
-         paddingBottom: '24px',
-         borderBottom: '2px solid rgba(250,178,101,0.2)'
+         textAlign: 'center' as const,
+         marginBottom: '4rem'
       },
       sectionTitle: {
          color: '#FAB265',
@@ -204,30 +175,101 @@ const Testimonial = () => {
          textTransform: 'uppercase',
          letterSpacing: '1.5px',
          marginBottom: '8px',
-         display: 'flex',
+         display: 'inline-flex',
          alignItems: 'center',
-         gap: '8px'
+         gap: '8px',
+         padding: '8px 20px',
+         background: 'rgba(250,178,101,0.15)',
+         borderRadius: '20px',
+         border: '2px solid rgba(250,178,101,0.4)'
       },
       sectionSubtitle: {
          color: '#FFFFFF',
-         fontSize: '1.8rem',
+         fontSize: '2.5rem',
          fontWeight: 800,
-         marginBottom: 0,
-         textShadow: '0 2px 12px rgba(250,178,101,0.4)'
+         marginBottom: '1rem',
+         textShadow: '0 4px 16px rgba(250,178,101,0.4)'
       },
-      contentArea: {
-         color: '#FFFFFF',
+      sectionDescription: {
+         color: 'rgba(255,255,255,0.9)',
          fontSize: '1.05rem',
-         lineHeight: 1.8,
-         flex: 1
+         maxWidth: '600px',
+         margin: '0 auto'
+      },
+      videoGrid: {
+         display: 'grid',
+         gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
+         gap: '30px',
+         justifyContent: 'center'
+      },
+      videoCard: {
+         background: 'rgba(255,255,255,0.05)',
+         borderRadius: '24px',
+         overflow: 'hidden',
+         border: '2px solid rgba(250,178,101,0.2)',
+         backdropFilter: 'blur(10px)',
+         boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+         transition: 'transform 0.3s ease, box-shadow 0.3s ease'
+      },
+      videoContainer: {
+         position: 'relative' as const,
+         width: '100%',
+         paddingBottom: '56.25%', // 16:9 aspect ratio
+         background: '#000'
+      },
+      videoIframe: {
+         position: 'absolute' as const,
+         top: 0,
+         left: 0,
+         width: '100%',
+         height: '100%',
+         border: 'none'
+      },
+      videoInfo: {
+         padding: '24px'
+      },
+      videoTitle: {
+         color: '#FFFFFF',
+         fontSize: '1.25rem',
+         fontWeight: 700,
+         marginBottom: '8px',
+         lineHeight: 1.4
+      },
+      videoDescription: {
+         color: 'rgba(255,255,255,0.8)',
+         fontSize: '0.95rem',
+         lineHeight: 1.6,
+         marginBottom: '16px'
+      },
+      videoBadge: {
+         display: 'inline-flex',
+         alignItems: 'center',
+         gap: '6px',
+         background: 'linear-gradient(135deg, #FD1C0A, #cc1608)',
+         color: '#FFFFFF',
+         padding: '6px 14px',
+         borderRadius: '10px',
+         fontSize: '0.8rem',
+         fontWeight: 600
       },
       loading: {
          textAlign: 'center' as const,
          padding: '60px 40px',
          color: '#FFFFFF'
+      },
+      emptyState: {
+         textAlign: 'center' as const,
+         padding: '60px 40px',
+         background: 'rgba(255,255,255,0.05)',
+         borderRadius: '24px',
+         border: '2px dashed rgba(250,178,101,0.3)'
       }
    };
 
+   // =============================================
+   // RENDERIZADO - SOLO VIDEOS
+   // =============================================
+   
    if (loading) {
       return (
          <div className="testimonial-area pd-top-100" style={testimonialStyles.section}>
@@ -243,8 +285,59 @@ const Testimonial = () => {
                      <span className="visually-hidden">Cargando...</span>
                   </div>
                   <p className="mt-4" style={{ color: 'rgba(255,255,255,0.8)', fontSize: '1.1rem' }}>
-                     Cargando perfil profesional...
+                     Conectando con: {API_BASE_URL}
                   </p>
+               </div>
+            </div>
+         </div>
+      );
+   }
+
+   if (error) {
+      return (
+         <div className="testimonial-area pd-top-100" style={testimonialStyles.section}>
+            <div className="container">
+               <div style={{ ...testimonialStyles.emptyState, borderColor: '#FD1C0A' }}>
+                  <i className="fa fa-exclamation-triangle" style={{ 
+                     fontSize: '3.5rem', 
+                     color: '#FD1C0A',
+                     marginBottom: '20px',
+                     display: 'block'
+                  }}></i>
+                  <h3 style={{ color: '#FFFFFF', fontWeight: 700, marginBottom: '12px' }}>
+                     ⚠️ Error al Cargar Videos
+                  </h3>
+                  <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '1.05rem', marginBottom: '24px' }}>{error}</p>
+                  <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.9rem' }}>
+                     API: {API_BASE_URL} | ID: {INSTITUCION_ID}
+                  </p>
+                  <button 
+                     onClick={() => window.location.reload()}
+                     style={{
+                        background: 'linear-gradient(135deg, #FD1C0A, #cc1608)',
+                        color: '#FFFFFF',
+                        padding: '14px 32px',
+                        borderRadius: '14px',
+                        fontWeight: 700,
+                        border: 'none',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        fontSize: '1rem',
+                        transition: 'all 0.3s ease'
+                     }}
+                     onMouseEnter={(e: any) => {
+                        e.currentTarget.style.transform = 'translateY(-3px)';
+                        e.currentTarget.style.boxShadow = '0 10px 28px rgba(253,28,10,0.5)';
+                     }}
+                     onMouseLeave={(e: any) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = 'none';
+                     }}
+                  >
+                     <i className="fa fa-refresh"></i> Reintentar
+                  </button>
                </div>
             </div>
          </div>
@@ -258,109 +351,106 @@ const Testimonial = () => {
          <div style={testimonialStyles.decorativeBg2} />
          
          <div className="container" style={testimonialStyles.container}>
-            <div className="testimonial-area-inner">
-               
-               <div style={testimonialStyles.contentWrapper}>
-                  
-                  {/* Columna Izquierda: Imagen */}
-                  <div style={testimonialStyles.imageColumn}>
-                     <div style={testimonialStyles.imageWrapper}>
-                        <Image 
-                           src="/assets/img/sociologia2.jpg" 
-                           alt="Estudiantes de Sociología UPEA"
-                           width={500}
-                           height={650}
-                           style={{ 
-                              width: '100%', 
-                              height: '100%',
-                              objectFit: 'cover',
-                              display: 'block'
-                           }}
-                        />
-                        <div style={testimonialStyles.imageOverlay} />
-                        <div style={testimonialStyles.imageBadge}>
-                           <i className="fa fa-users"></i>
-                           Estudiantes UPEA
-                        </div>
-                     </div>
-                  </div>
-                  
-                  {/* Columna Derecha: Contenido del Perfil Profesional */}
-                  <div style={testimonialStyles.contentColumn}>
-                     <div style={testimonialStyles.cardWrapper}>
-                        
-                        {/* Header */}
-                        <div style={testimonialStyles.headerSection}>
-                           <h6 style={testimonialStyles.sectionTitle}>
-                              <i className="fa fa-graduation-cap"></i>
-                              PERFIL PROFESIONAL
-                           </h6>
-                           <h2 style={testimonialStyles.sectionSubtitle}>
-                              {institucion?.institucion_nombre || "SOCIOLOGÍA"}
-                           </h2>
-                        </div>
-                        
-                        {/* Contenido HTML sanitizado */}
-                        <div 
-                           style={testimonialStyles.contentArea}
-                           dangerouslySetInnerHTML={{ __html: sanitizedContent }}
-                           className="perfil-profesional-content"
-                        />
-                        
-                     </div>
-                  </div>
-                  
-               </div>
-               
+            
+            {/* Header de Sección */}
+            <div style={testimonialStyles.headerSection}>
+               <h6 style={testimonialStyles.sectionTitle}>
+                  <i className="fa fa-youtube-play"></i>
+                  VIDEOS INSTITUCIONALES
+               </h6>
+               <h2 style={testimonialStyles.sectionSubtitle}>
+                  Multimedia de Sociología
+               </h2>
+               <p style={testimonialStyles.sectionDescription}>
+                  <i className="fa fa-database me-2"></i>
+                  API: {API_BASE_URL} | Institución: {INSTITUCION_ID}
+               </p>
             </div>
+            
+            {/* Grid de Videos */}
+            {videos.length === 0 ? (
+               <div style={testimonialStyles.emptyState}>
+                  <i className="fa fa-video-camera" style={{ 
+                     fontSize: '4rem', 
+                     color: '#FAB265',
+                     marginBottom: '20px',
+                     opacity: 0.6,
+                     display: 'block'
+                  }}></i>
+                  <h3 style={{ color: '#FFFFFF', fontWeight: 700, marginBottom: '12px' }}>
+                     Sin Videos Disponibles
+                  </h3>
+                  <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '1.05rem', maxWidth: '500px', margin: '0 auto' }}>
+                     Los videos institucionales se mostrarán aquí cuando la administración los publique.
+                  </p>
+                  <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.9rem', marginTop: '1rem' }}>
+                     API: {API_BASE_URL} | ID: {INSTITUCION_ID}
+                  </p>
+               </div>
+            ) : (
+               <div style={testimonialStyles.videoGrid}>
+                  {videos.map((video, index) => {
+                     const embedUrl = getYouTubeEmbedUrl(video.video_enlace);
+                     
+                     return (
+                        <article 
+                           key={video.video_id}
+                           style={testimonialStyles.videoCard}
+                           onMouseEnter={(e: any) => {
+                              e.currentTarget.style.transform = 'translateY(-8px)';
+                              e.currentTarget.style.boxShadow = '0 30px 80px rgba(250,178,101,0.4)';
+                           }}
+                           onMouseLeave={(e: any) => {
+                              e.currentTarget.style.transform = 'translateY(0)';
+                              e.currentTarget.style.boxShadow = '0 20px 60px rgba(0,0,0,0.3)';
+                           }}
+                        >
+                           {/* Contenedor de Video - Iframe de YouTube */}
+                           <div style={testimonialStyles.videoContainer}>
+                              <iframe
+                                 src={embedUrl}
+                                 title={video.video_titulo}
+                                 style={testimonialStyles.videoIframe}
+                                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                 allowFullScreen
+                                 loading="lazy"
+                              />
+                           </div>
+                           
+                           {/* Información del Video */}
+                           <div style={testimonialStyles.videoInfo}>
+                              <h3 style={testimonialStyles.videoTitle}>
+                                 {video.video_titulo}
+                              </h3>
+                              
+                              {video.video_breve_descripcion && (
+                                 <p style={testimonialStyles.videoDescription}>
+                                    {video.video_breve_descripcion}
+                                 </p>
+                              )}
+                              
+                              {/* Badge de Tipo */}
+                              {video.video_tipo && video.video_tipo !== 'sin tipo' && (
+                                 <span style={testimonialStyles.videoBadge}>
+                                    <i className="fa fa-tag"></i>
+                                    {video.video_tipo}
+                                 </span>
+                              )}
+                           </div>
+                        </article>
+                     );
+                  })}
+               </div>
+            )}
+            
          </div>
          
          {/* =============================================
             CSS Global - RESPONSIVE DESIGN
             ============================================= */}
          <style jsx global>{`
-            .perfil-profesional-content p {
-               margin-bottom: 1.5rem;
-               color: rgba(255,255,255,0.95);
-               line-height: 1.8;
-            }
-            
-            .perfil-profesional-content strong {
-               color: #FAB265;
-               font-weight: 700;
-               display: block;
-               margin-bottom: 0.5rem;
-               font-size: 1.1rem;
-            }
-            
-            .perfil-profesional-content ul {
-               list-style: none;
-               padding-left: 0;
-               margin: 1rem 0;
-            }
-            
-            .perfil-profesional-content ul li {
-               padding: 8px 0 8px 32px;
-               position: relative;
-               color: rgba(255,255,255,0.9);
-               border-bottom: 1px solid rgba(250,178,101,0.1);
-            }
-            
-            .perfil-profesional-content ul li:before {
-               content: '✓';
-               position: absolute;
-               left: 0;
-               color: #FAB265;
-               font-weight: bold;
-               font-size: 1.2rem;
-            }
-            
-            .perfil-profesional-content ul li:last-child {
-               border-bottom: none;
-            }
-            
             /* =============================================
-               RESPONSIVE DESIGN - TESTIMONIAL
+               RESPONSIVE DESIGN - TESTIMONIAL VIDEOS
                ============================================= */
             
             /* Tablet */
@@ -369,26 +459,12 @@ const Testimonial = () => {
                   padding: 80px 0 !important;
                }
                
-               .testimonial-area .contentWrapper {
-                  gap: 40px !important;
-               }
-               
-               .testimonial-area .imageColumn,
-               .testimonial-area .contentColumn {
-                  flex: 0 0 100% !important;
-                  maxWidth: 100% !important;
-               }
-               
-               .testimonial-area .imageWrapper {
-                  min-height: 400px !important;
-               }
-               
-               .testimonial-area .cardWrapper {
-                  padding: 40px !important;
-               }
-               
                .testimonial-area .sectionSubtitle {
-                  font-size: 1.5rem !important;
+                  font-size: 2rem !important;
+               }
+               
+               .testimonial-area .videoGrid {
+                  grid-template-columns: 1fr !important;
                }
             }
             
@@ -403,59 +479,32 @@ const Testimonial = () => {
                   display: none !important;
                }
                
-               .testimonial-area .contentWrapper {
-                  gap: 30px !important;
-               }
-               
-               .testimonial-area .imageWrapper {
-                  min-height: 300px !important;
-                  border-radius: 20px !important;
-               }
-               
-               .testimonial-area .imageBadge {
-                  bottom: 16px !important;
-                  left: 16px !important;
-                  padding: 8px 16px !important;
-                  font-size: 0.8rem !important;
-               }
-               
-               .testimonial-area .cardWrapper {
-                  padding: 32px 24px !important;
-                  border-radius: 20px !important;
-               }
-               
-               .testimonial-area .headerSection {
-                  margin-bottom: 24px !important;
-                  padding-bottom: 20px !important;
-               }
-               
                .testimonial-area .sectionTitle {
                   font-size: 0.85rem !important;
-                  justify-content: center !important;
+                  padding: 6px 16px !important;
                }
                
                .testimonial-area .sectionSubtitle {
-                  font-size: 1.3rem !important;
-                  text-align: center !important;
+                  font-size: 1.5rem !important;
                }
                
-               .testimonial-area .contentArea {
+               .testimonial-area .sectionDescription {
                   font-size: 0.95rem !important;
-                  line-height: 1.6 !important;
                }
                
-               .perfil-profesional-content p {
-                  font-size: 0.95rem !important;
-                  margin-bottom: 1.2rem !important;
+               .testimonial-area .videoCard {
+                  border-radius: 20px !important;
                }
                
-               .perfil-profesional-content strong {
-                  font-size: 1rem !important;
-                  text-align: center !important;
+               .testimonial-area .videoInfo {
+                  padding: 20px !important;
                }
                
-               .perfil-profesional-content ul li {
-                  padding: 6px 0 6px 28px !important;
+               .testimonial-area .videoTitle {
+                  font-size: 1.1rem !important;
+               }
+               
+               .testimonial-area .videoDescription {
                   font-size: 0.9rem !important;
                }
             }
@@ -466,41 +515,21 @@ const Testimonial = () => {
                   padding: 50px 0 !important;
                }
                
-               .testimonial-area .imageWrapper {
-                  min-height: 250px !important;
-               }
-               
-               .testimonial-area .cardWrapper {
-                  padding: 28px 20px !important;
-               }
-               
                .testimonial-area .sectionTitle {
                   font-size: 0.8rem !important;
                }
                
                .testimonial-area .sectionSubtitle {
-                  font-size: 1.2rem !important;
+                  font-size: 1.3rem !important;
                }
                
-               .testimonial-area .contentArea {
-                  font-size: 0.9rem !important;
-               }
-               
-               .perfil-profesional-content p {
-                  font-size: 0.9rem !important;
-               }
-               
-               .perfil-profesional-content strong {
-                  font-size: 0.95rem !important;
-               }
-               
-               .perfil-profesional-content ul li {
-                  padding: 5px 0 5px 24px !important;
-                  font-size: 0.85rem !important;
-               }
-               
-               .perfil-profesional-content ul li:before {
+               .testimonial-area .videoTitle {
                   font-size: 1rem !important;
+               }
+               
+               .testimonial-area .videoBadge {
+                  padding: 5px 12px !important;
+                  font-size: 0.75rem !important;
                }
             }
          `}</style>

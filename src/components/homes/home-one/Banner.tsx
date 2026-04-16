@@ -29,17 +29,60 @@ interface InstitucionData {
 }
 
 // =============================================
-// CONFIGURACIÓN - URLs DIRECTAS SIN PROXY
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
 // =============================================
-const API_BASE_URL = 'https://apiadministrador.upea.bo';
-const API_TOKEN = '130143e7a5de4f3524cae21a8f333b85e82a9ac037f111d9d1fbad23edecccc1';
-const INSTITUCION_ID = "35";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
 
 // ✅ IDs DE PORTADAS ALEATORIAS (238, 239, 240)
 const PORTADA_IDS_RANDOM = [238, 239, 240];
 
 // =============================================
-// COMPONENTE - CONSUMIENDO PORTADA RANDOM ✨
+// UTILIDADES - Manejo Inteligente de Imágenes
+// =============================================
+
+/**
+ * Construye URL completa para imágenes de portadas y logos
+ * ✅ URL completa (http/https) → Retorna tal cual (MinIO o externo)
+ * ✅ Ruta relativa (/storage/...) → Agrega API_BASE_URL
+ * ✅ UUID/filename → Agrega carpeta según tipo
+ */
+const buildImageUrl = (
+  imagePath: string | null | undefined,
+  type: 'portada' | 'logo' | 'evento' | 'curso' | 'convocatoria' | 'gaceta' | 'autoridad' = 'portada'
+): string => {
+  if (!imagePath) return '/assets/img/sociologia3.jpg';
+  
+  const cleanPath = imagePath.trim();
+  
+  // ✅ CASO 1: Ya es URL completa (MinIO o externo) → NO modificar
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    return cleanPath;
+  }
+  
+  // ✅ CASO 2: Ruta relativa /storage/... → Agregar API_BASE_URL
+  if (cleanPath.startsWith('/storage/')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+  
+  // ✅ CASO 3: UUID o filename → Construir URL con carpeta según tipo
+  const typeFolders: Record<string, string> = {
+    portada: '/storage/imagenes/portadas/',
+    logo: '/storage/imagenes/logos/',
+    evento: '/storage/imagenes/eventos/',
+    curso: '/storage/imagenes/cursos/',
+    convocatoria: '/storage/imagenes/convocatorias/',
+    gaceta: '/storage/imagenes/gacetas/',
+    autoridad: '/storage/imagenes/autoridades/'
+  };
+  
+  const folder = typeFolders[type] || '/storage/imagenes/';
+  return `${API_BASE_URL}${folder}${cleanPath}`;
+};
+
+// =============================================
+// COMPONENTE PRINCIPAL
 // =============================================
 const Banner: React.FC = () => {
    const [data, setData] = useState<InstitucionData | null>(null);
@@ -64,21 +107,14 @@ const Banner: React.FC = () => {
       return portadasFiltradas[randomIndex];
    };
 
-   // ✅ CONSTRUIR URL DE PORTADA
-   const buildPortadaUrl = (imagenPath: string | null | undefined): string => {
-      if (!imagenPath) return '/assets/img/sociologia3.jpg';
-      const cleanPath = imagenPath.trim();
-      if (cleanPath.startsWith('http')) return cleanPath;
-      if (cleanPath.startsWith('/storage/')) return `${API_BASE_URL}${cleanPath}`;
-      return `${API_BASE_URL}/storage/imagenes/portadas/${cleanPath}`;
-   };
-
    useEffect(() => {
       const fetchData = async () => {
          try {
-            const url = `${API_BASE_URL}/api/v2/institucion/${INSTITUCION_ID}/contenido`;
-            console.log('🔄 [Banner] Cargando desde:', url);
+            console.log('🔄 [Banner] API:', API_BASE_URL);
+            console.log('📋 Institución ID:', INSTITUCION_ID);
             
+            // ✅ URL y headers con variables de entorno
+            const url = `${API_BASE_URL}/api/v2/institucion/${INSTITUCION_ID}/contenido`;
             const headers: HeadersInit = { 
                'Content-Type': 'application/json',
             };
@@ -107,7 +143,8 @@ const Banner: React.FC = () => {
                      titulo: portadaRandom.portada_titulo
                   });
                   
-                  const fullUrl = buildPortadaUrl(portadaRandom.portada_imagen);
+                  // ✅ Construir URL de portada inteligente
+                  const fullUrl = buildImageUrl(portadaRandom.portada_imagen, 'portada');
                   console.log('🖼️ [Banner] URL de portada:', fullUrl);
                   setPortadaUrl(fullUrl);
                } else {
@@ -115,20 +152,16 @@ const Banner: React.FC = () => {
                   setPortadaUrl('/assets/img/sociologia3.jpg');
                }
                
+               // ✅ Construir URL de logo inteligente
                if (result.institucion_logo) {
-                  const logoPath = result.institucion_logo;
-                  let logoFullUrl = '';
-                  if (logoPath.startsWith('http')) {
-                     logoFullUrl = logoPath;
-                  } else {
-                     logoFullUrl = `${API_BASE_URL}${logoPath}`;
-                  }
+                  const logoFullUrl = buildImageUrl(result.institucion_logo, 'logo');
                   console.log('🎨 [Banner] Logo URL:', logoFullUrl);
                   setLogoUrl(logoFullUrl);
                }
                
                setData(result);
                
+               // Colores institucionales
                if (result.colorinstitucion && result.colorinstitucion.length > 0) {
                   const colorScheme = result.colorinstitucion.find((c: any) => c.id_color === 32) || 
                                      result.colorinstitucion[0];
@@ -266,7 +299,7 @@ const Banner: React.FC = () => {
                   <span className="visually-hidden">Cargando...</span>
                </div>
                <p className="mt-4" style={{ color: '#FFFFFF', fontSize: '1.1rem' }}>
-                  Cargando Sociología UPEA...
+                  Conectando con: {API_BASE_URL}
                </p>
             </div>
          </div>
@@ -288,7 +321,7 @@ const Banner: React.FC = () => {
                {/* Logo */}
                <div className="col-lg-5 col-md-8 order-lg-12 text-center text-lg-end">
                   <div style={bannerStyles.logoWrapper}>
-                     {logoUrl && (
+                     {logoUrl ? (
                         <Image 
                            src={logoUrl} 
                            alt={data?.institucion_nombre || 'Logo UPEA'}
@@ -300,9 +333,26 @@ const Banner: React.FC = () => {
                               maxWidth: '420px',
                               ...bannerStyles.logoImage
                            }}
-                           unoptimized
+                           // ✅ No optimizar si es URL externa (MinIO)
+                           unoptimized={logoUrl.startsWith('http')}
                            onError={(e) => {
                               console.error('❌ Error cargando logo:', logoUrl);
+                              const target = e.target as HTMLImageElement;
+                              target.src = '/assets/img/logo-fallback.png';
+                           }}
+                           loading="eager"
+                        />
+                     ) : (
+                        <Image 
+                           src="/assets/img/logo-sociologia.png"
+                           alt="Logo Sociología UPEA"
+                           width={420}
+                           height={420}
+                           style={{ 
+                              width: '100%', 
+                              height: 'auto',
+                              maxWidth: '420px',
+                              ...bannerStyles.logoImage
                            }}
                         />
                      )}

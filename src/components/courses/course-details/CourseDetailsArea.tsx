@@ -1,4 +1,3 @@
-/* si lo usamos convocatorias */
 "use client"
 import { useEffect, useState, useMemo } from "react";
 import Image from "next/image";
@@ -21,30 +20,52 @@ interface ConvocatoriaItem {
 }
 
 // =============================================
-// CONSTANTES - ID DE INSTITUCIÓN (NUEVO SERVIDOR)
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
 // =============================================
-// Según endpoint: https://apiadministrador.upea.bo/api/v2/institucionesPrincipal/35
-const INSTITUCION_ID = "35"; // Sociología
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
 
 // =============================================
-// UTILIDADES
+// UTILIDADES - Manejo Inteligente de Imágenes
 // =============================================
 
 /**
- * Construye URL de imagen desde el nuevo servidor
+ * Construye URL completa para imágenes de convocatorias
+ * ✅ URL completa (http/https) → Retorna tal cual (MinIO o externo)
+ * ✅ Ruta relativa (/storage/...) → Agrega API_BASE_URL
+ * ✅ UUID/filename → Agrega carpeta de convocatorias
  */
-const buildImageUrl = (fileName: string | null | undefined): string => {
-   if (!fileName) return '/images/placeholder-convocatoria.png';
-   
-   const cleanName = fileName.trim();
-   
-   // Si ya es URL absoluta
-   if (cleanName.startsWith('http://') || cleanName.startsWith('https://')) {
-      return cleanName;
-   }
-   
-   // Usar proxy local con autenticación
-   return `/api/recurso?file=${encodeURIComponent(cleanName)}`;
+const buildImageUrl = (
+  imagePath: string | null | undefined,
+  type: 'convocatoria' | 'evento' | 'curso' | 'gaceta' | 'autoridad' | 'portada' = 'convocatoria'
+): string => {
+  if (!imagePath) return '/images/placeholder-convocatoria.png';
+  
+  const cleanPath = imagePath.trim();
+  
+  // ✅ CASO 1: Ya es URL completa (MinIO o externo) → NO modificar
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    return cleanPath;
+  }
+  
+  // ✅ CASO 2: Ruta relativa /storage/... → Agregar API_BASE_URL
+  if (cleanPath.startsWith('/storage/')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+  
+  // ✅ CASO 3: UUID o filename → Construir URL con carpeta según tipo
+  const typeFolders: Record<string, string> = {
+    convocatoria: '/storage/imagenes/convocatorias/',
+    evento: '/storage/imagenes/eventos/',
+    curso: '/storage/imagenes/cursos/',
+    gaceta: '/storage/imagenes/gacetas/',
+    autoridad: '/storage/imagenes/autoridades/',
+    portada: '/storage/imagenes/portadas/'
+  };
+  
+  const folder = typeFolders[type] || '/storage/imagenes/';
+  return `${API_BASE_URL}${folder}${cleanPath}`;
 };
 
 /**
@@ -96,26 +117,29 @@ const getConvocatoriaStatus = (fechaInicio: string, fechaFin: string): { label: 
 };
 
 // =============================================
-// SERVICIO: Obtener convocatorias
+// SERVICIO: Obtener convocatorias CON VARIABLES DE ENTORNO
 // =============================================
 const getInstitucionGacetaEventos = async (institucionId: string) => {
    try {
-      const response = await fetch(
-         `/api/institucion?path=institucion/${institucionId}/gacetaEventos`,
-         {
-            method: 'GET',
-            headers: {
-               'Content-Type': 'application/json',
-            },
-         }
-      );
+      // ✅ Usar variables de entorno para la URL y token
+      const apiUrl = `${API_BASE_URL}/api/v2/institucion/${institucionId}/gacetaEventos`;
+      
+      const response = await fetch(apiUrl, {
+         method: 'GET',
+         headers: {
+            'Content-Type': 'application/json',
+            ...(API_TOKEN && { 'Authorization': `Bearer ${API_TOKEN}` })
+         },
+         cache: 'no-store'
+      });
       
       const data = await response.json();
       
       console.log('[Service] Respuesta convocatorias:', {
          status: response.status,
          ok: response.ok,
-          data
+         apiUrl,
+         data
       });
       
       return {
@@ -140,7 +164,7 @@ const CourseDetailsArea: React.FC = () => {
    const [error, setError] = useState<string | null>(null);
 
    // =============================================
-   // CARGA DE DATOS - NUEVO SERVICIO API V2
+   // CARGA DE DATOS - API CON VARIABLES DE ENTORNO
    // =============================================
    useEffect(() => {
       let isMounted = true;
@@ -150,9 +174,10 @@ const CourseDetailsArea: React.FC = () => {
             setLoading(true);
             setError(null);
             
-            console.log(`🔄 [CourseDetails] Cargando convocatorias para Sociología (ID: ${INSTITUCION_ID})...`);
+            console.log(`🔄 [CourseDetails] API: ${API_BASE_URL}`);
+            console.log(`📋 Institución ID: ${INSTITUCION_ID}`);
             
-            // ✅ Llamada al nuevo servicio con token (vía proxy)
+            // ✅ Llamada al servicio con variables de entorno
             const response = await getInstitucionGacetaEventos(INSTITUCION_ID);
             
             console.log('📡 [CourseDetails] Respuesta completa:', response);
@@ -161,7 +186,7 @@ const CourseDetailsArea: React.FC = () => {
             // CASO 1: Error 404 - Sin convocatorias (ESPERADO)
             // =============================================
             if (response.status === 404 || response.data?.statusCode === 404) {
-               console.log('ℹ️ [CourseDetails] Sin convocatorias disponibles (404 del nuevo servicio)');
+               console.log('ℹ️ [CourseDetails] Sin convocatorias disponibles (404)');
                if (isMounted) {
                   setConvocatorias([]);
                }
@@ -183,7 +208,7 @@ const CourseDetailsArea: React.FC = () => {
                
                if (isMounted) {
                   setConvocatorias(lista);
-                  console.log(`✅ [CourseDetails] ${lista.length} convocatorias cargadas exitosamente`);
+                  console.log(`✅ [CourseDetails] ${lista.length} convocatorias cargadas`);
                }
                return;
             }
@@ -226,7 +251,7 @@ const CourseDetailsArea: React.FC = () => {
                if (err?.status === 404) {
                   setConvocatorias([]);
                } else {
-                  setError(err?.message || "Error al cargar las convocatorias");
+                  setError(err?.message || "Error al conectar con el servidor");
                   setConvocatorias([]);
                }
             }
@@ -241,13 +266,13 @@ const CourseDetailsArea: React.FC = () => {
       
       return () => { isMounted = false; };
       
-   }, []); // ID fijo en constante
+   }, []);
 
    // =============================================
    // PREPARAR CONVOCATORIAS RELACIONADAS (memoizado)
    // =============================================
    const relatedConvocatorias = useMemo(() => {
-      // Mostrar máximo 3 convocatorias relacionadas (excluyendo la actual si estamos en detalle)
+      // Mostrar máximo 3 convocatorias relacionadas
       return convocatorias.slice(0, 3);
    }, [convocatorias]);
 
@@ -264,7 +289,9 @@ const CourseDetailsArea: React.FC = () => {
                         <div className="spinner-border text-primary" role="status">
                            <span className="visually-hidden">Cargando...</span>
                         </div>
-                        <p className="mt-3 text-muted">Cargando convocatorias de Sociología...</p>
+                        <p className="mt-3 text-muted">
+                           Conectando con: {API_BASE_URL}
+                        </p>
                      </div>
                   </div>
                </div>
@@ -283,6 +310,9 @@ const CourseDetailsArea: React.FC = () => {
                         <i className="fa fa-exclamation-triangle me-2"></i>
                         <strong>Atención:</strong> {error}
                      </div>
+                     <p className="text-muted small mb-3">
+                        API: {API_BASE_URL} | Institución: {INSTITUCION_ID}
+                     </p>
                      <button 
                         className="btn btn-outline-primary mt-3"
                         onClick={() => window.location.reload()}
@@ -311,7 +341,7 @@ const CourseDetailsArea: React.FC = () => {
                      {/* Tabs de navegación (componente existente) */}
                      <CourseDetailsNavTab />
                      
-                     {/* Contenido principal de la convocatoria (placeholder - personalizar según necesidad) */}
+                     {/* Contenido principal de la convocatoria (placeholder) */}
                      <div className="course-content mt-4 p-4" style={{ 
                         background: "#fff", 
                         borderRadius: "12px",
@@ -322,7 +352,7 @@ const CourseDetailsArea: React.FC = () => {
                            Detalles de la Convocatoria
                         </h4>
                         <p className="text-muted">
-                           Seleccione una convocatoria de la sección "Otros Comunicados" para ver sus detalles completos, 
+                           Seleccione una convocatoria de la sección &quot;Otros Comunicados&quot; para ver sus detalles completos, 
                            requisitos, fechas importantes y proceso de postulación.
                         </p>
                         <div className="alert alert-info">
@@ -367,13 +397,17 @@ const CourseDetailsArea: React.FC = () => {
                         <p className="text-muted small mb-0">
                            No hay más convocatorias para mostrar en este momento.
                         </p>
+                        <p className="text-muted small mt-2">
+                           API: {API_BASE_URL} | ID: {INSTITUCION_ID}
+                        </p>
                      </div>
                   </div>
                )}
                
                {relatedConvocatorias.map((convocatoria) => {
                   const status = getConvocatoriaStatus(convocatoria.con_fecha_inicio, convocatoria.con_fecha_fin);
-                  const imageUrl = buildImageUrl(convocatoria.con_foto_portada);
+                  // ✅ Construir URL de imagen inteligente
+                  const imageUrl = buildImageUrl(convocatoria.con_foto_portada, 'convocatoria');
                   
                   return (
                      <div key={convocatoria.idconvocatorias} className="col-lg-4 col-md-6 mb-4">
@@ -423,7 +457,8 @@ const CourseDetailsArea: React.FC = () => {
                                     objectFit: "cover",
                                     transition: "transform 0.3s ease"
                                  }}
-                                 unoptimized={convocatoria.con_foto_portada?.startsWith('http')}
+                                 // ✅ No optimizar si es URL externa (MinIO)
+                                 unoptimized={imageUrl.startsWith('http')}
                                  onError={(e) => {
                                     const target = e.target as HTMLImageElement;
                                     target.src = '/images/placeholder-convocatoria.png';

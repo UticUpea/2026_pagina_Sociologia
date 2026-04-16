@@ -1,8 +1,8 @@
 "use client";
 import MobileMenu from "./menu/MobileMenu";
-import NextImage from "next/image";
+import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState, useMemo, CSSProperties } from "react";
+import { useEffect, useState, useMemo, CSSProperties, useCallback } from "react"; // ✅ Agregar useCallback
 import NavMenu from "./menu/NavMenu";
 import HeaderTopOne from "./menu/HeaderTopOne";
 import UseSticky from "@/hooks/UseSticky";
@@ -11,9 +11,15 @@ import HeaderSearchbar from "./menu/HeaderSearchbar";
 import logo_1 from "@/assets/img/logo-sociologia.png";
 import logo_2 from "@/assets/img/logo-sociologia.png";
 
-const INSTITUCION_ID = "35";
-const TARGET_COLOR_ID = 32;
-const API_BASE_URL = 'https://apiadministrador.upea.bo';
+// =============================================
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
+// =============================================
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
+const TARGET_COLOR_ID = process.env.NEXT_PUBLIC_COLOR_ID 
+   ? parseInt(process.env.NEXT_PUBLIC_COLOR_ID, 10) 
+   : 32;
 
 const cleanUrl = (url: string | null | undefined): string => {
    return url?.toString().trim() || "";
@@ -49,27 +55,36 @@ const testImageLoad = (src: string): Promise<boolean> => {
    });
 };
 
-const buildDirectLogoUrl = (logoPath: string | null | undefined): string => {
-   if (!logoPath) return '';
-   const cleanPath = logoPath.trim();
-   if (cleanPath.startsWith('http')) return cleanPath;
-   if (cleanPath.startsWith('/storage/')) return `${API_BASE_URL}${cleanPath}`;
-   return `${API_BASE_URL}/storage/imagenes/instituciones/${cleanPath}`;
+const buildLogoUrl = (
+  logoPath: string | null | undefined,
+  type: 'logo' | 'portada' | 'evento' | 'curso' | 'convocatoria' | 'gaceta' | 'autoridad' = 'logo'
+): string => {
+  if (!logoPath) return '';
+  const cleanPath = logoPath.trim();
+  if (cleanPath.startsWith('http')) return cleanPath;
+  if (cleanPath.startsWith('/storage/')) return `${API_BASE_URL}${cleanPath}`;
+  
+  const typeFolders: Record<string, string> = {
+    logo: '/storage/imagenes/logos/',
+    portada: '/storage/imagenes/portadas/',
+    evento: '/storage/imagenes/eventos/',
+    curso: '/storage/imagenes/cursos/',
+    convocatoria: '/storage/imagenes/convocatorias/',
+    gaceta: '/storage/imagenes/gacetas/',
+    autoridad: '/storage/imagenes/autoridades/'
+  };
+  
+  const folder = typeFolders[type] || '/storage/imagenes/';
+  return `${API_BASE_URL}${folder}${cleanPath}`;
 };
 
 const getInstitucionHeaderData = async (institucionId: string) => {
    try {
-      const response = await fetch(
-         `${API_BASE_URL}/api/v2/institucionesPrincipal/${institucionId}`,
-         {
-            method: 'GET',
-            headers: { 
-               'Content-Type': 'application/json',
-               'Authorization': `Bearer 130143e7a5de4f3524cae21a8f333b85e82a9ac037f111d9d1fbad23edecccc1`
-            },
-            cache: 'no-store'
-         }
-      );
+      const url = `${API_BASE_URL}/api/v2/institucionesPrincipal/${institucionId}`;
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (API_TOKEN) headers['Authorization'] = `Bearer ${API_TOKEN}`;
+      
+      const response = await fetch(url, { method: 'GET', headers, cache: 'no-store' });
       const data = await response.json();
       return { data, status: response.status, ok: response.ok };
    } catch (error) {
@@ -99,6 +114,22 @@ const HeaderOne: React.FC<{ style?: any; style_2?: any }> = ({ style, style_2 })
       return () => window.removeEventListener('scroll', handleScroll);
    }, []);
 
+   // ✅ applyCssVariables con useCallback - función estable
+   const applyCssVariables = useCallback((colors: any) => {
+      const root = document.documentElement;
+      root.style.setProperty('--main-color', colors.primario);
+      root.style.setProperty('--heading-color', colors.secundario);
+      root.style.setProperty('--accent-color', colors.terciario);
+   }, []); // ✅ Sin dependencias → función estable
+   
+   // ✅ applyDefaultColors con useCallback - función estable
+   const applyDefaultColors = useCallback(() => {
+      const defaultColors = { primario: '#FD1C0A', secundario: '#FAB265', terciario: '#050504' };
+      setColors(defaultColors);
+      applyCssVariables(defaultColors);
+   }, [applyCssVariables]); // ✅ Solo depende de applyCssVariables (estable)
+
+   // ✅ useEffect con dependencias explícitas - SOLUCIONA EL WARNING
    useEffect(() => {
       let isMounted = true;
       
@@ -122,7 +153,7 @@ const HeaderOne: React.FC<{ style?: any; style_2?: any }> = ({ style, style_2 })
                   
                   const logoFile = cleanUrl(descripcion.institucion_logo);
                   if (logoFile) {
-                     const directLogoUrl = buildDirectLogoUrl(logoFile);
+                     const directLogoUrl = buildLogoUrl(logoFile, 'logo');
                      const canLoad = await testImageLoad(directLogoUrl);
                      
                      if (isMounted) {
@@ -149,19 +180,7 @@ const HeaderOne: React.FC<{ style?: any; style_2?: any }> = ({ style, style_2 })
 
       fetchHeaderData();
       return () => { isMounted = false; };
-   }, []);
-
-   const applyCssVariables = (colors: any) => {
-      const root = document.documentElement;
-      root.style.setProperty('--main-color', colors.primario);
-      root.style.setProperty('--heading-color', colors.secundario);
-      root.style.setProperty('--accent-color', colors.terciario);
-   };
-   
-   const applyDefaultColors = () => {
-      setColors({ primario: '#FD1C0A', secundario: '#FAB265', terciario: '#050504' });
-      applyCssVariables({ primario: '#FD1C0A', secundario: '#FAB265', terciario: '#050504' });
-   };
+   }, [applyDefaultColors, applyCssVariables]); // ✅ DEPENDENCIAS EXPLÍCITAS - SOLUCIONA EL WARNING
 
    const headerStyles = useMemo(() => {
       const isScrolled = sticky || scrollY > 50;
@@ -298,8 +317,6 @@ const HeaderOne: React.FC<{ style?: any; style_2?: any }> = ({ style, style_2 })
          
          <div className="navbar-area">
             <HeaderTopOne />
-            
-            {/* ✅ MobileMenu Component */}
             <MobileMenu />
             
             <nav
@@ -333,12 +350,12 @@ const HeaderOne: React.FC<{ style?: any; style_2?: any }> = ({ style, style_2 })
                   <div className="logo">
                      <Link href="/" style={{ display: 'inline-block' }}>
                         {logoUrl && logoLoaded ? (
-                           <NextImage
+                           <Image
                               src={logoUrl}
                               alt="Logo Sociología UPEA"
                               width={120}
                               height={36}
-                              unoptimized
+                              unoptimized={logoUrl.startsWith('http://') || logoUrl.startsWith('https://')}
                               style={{ 
                                  height: "36px",
                                  width: "auto",
@@ -354,7 +371,7 @@ const HeaderOne: React.FC<{ style?: any; style_2?: any }> = ({ style, style_2 })
                               priority
                            />
                         ) : (
-                           <NextImage 
+                           <Image 
                               src={style ? logo_2 : logo_1} 
                               alt="Logo Sociología UPEA" 
                               width={120}
@@ -365,7 +382,9 @@ const HeaderOne: React.FC<{ style?: any; style_2?: any }> = ({ style, style_2 })
                                  maxWidth: "120px",
                                  objectFit: "contain",
                                  ...headerStyles.logo
-                              }} 
+                              }}
+                              loading="eager"
+                              priority
                            />
                         )}
                      </Link>
@@ -395,10 +414,7 @@ const HeaderOne: React.FC<{ style?: any; style_2?: any }> = ({ style, style_2 })
                         href={cleanUrl("https://matriculacion.upea.bo/6e56c5c3766bda500b0c353c32bfa6d36fc48c6e")}
                         target="_blank"
                         rel="noopener noreferrer"
-                        style={{
-                           ...headerStyles.buttonSecondary,
-                           marginLeft: '8px'
-                        }}
+                        style={{ ...headerStyles.buttonSecondary, marginLeft: '8px' }}
                         onMouseEnter={(e: any) => {
                            e.currentTarget.style.transform = 'translateY(-2px)';
                            e.currentTarget.style.background = 'rgba(250,178,101,0.3)';
@@ -459,11 +475,7 @@ const HeaderOne: React.FC<{ style?: any; style_2?: any }> = ({ style, style_2 })
                      
                      <a 
                         onClick={() => setIsSearch(true)} 
-                        style={{ 
-                           ...headerStyles.searchIcon,
-                           fontSize: '1.35rem',
-                           marginLeft: '16px'
-                        }} 
+                        style={{ ...headerStyles.searchIcon, fontSize: '1.35rem', marginLeft: '16px' }} 
                         className="search-bar"
                         role="button"
                         aria-label="Buscar"
@@ -489,68 +501,26 @@ const HeaderOne: React.FC<{ style?: any; style_2?: any }> = ({ style, style_2 })
          
          <style jsx global>{`
             @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Montserrat:wght@400;500;600;700;800&display=swap');
-            
-            * {
-               font-family: 'Poppins', 'Montserrat', sans-serif !important;
-            }
-            
+            * { font-family: 'Poppins', 'Montserrat', sans-serif !important; }
             .navbar-nav .dropdown-menu {
-               display: none !important;
-               position: absolute !important;
-               top: 100% !important;
-               left: 0 !important;
-               min-width: 250px !important;
-               background: linear-gradient(180deg, #050504 0%, #1a0505 100%) !important;
-               border: 2px solid rgba(250,178,101,0.5) !important;
-               border-radius: 12px !important;
-               box-shadow: 0 12px 40px rgba(0,0,0,0.4) !important;
-               padding: 12px 0 !important;
-               margin-top: 8px !important;
-               z-index: 1000 !important;
+               display: none !important; position: absolute !important; top: 100% !important; left: 0 !important;
+               min-width: 250px !important; background: linear-gradient(180deg, #050504 0%, #1a0505 100%) !important;
+               border: 2px solid rgba(250,178,101,0.5) !important; border-radius: 12px !important;
+               box-shadow: 0 12px 40px rgba(0,0,0,0.4) !important; padding: 12px 0 !important; margin-top: 8px !important; z-index: 1000 !important;
             }
-            
-            .navbar-nav .dropdown:hover .dropdown-menu {
-               display: block !important;
-            }
-            
+            .navbar-nav .dropdown:hover .dropdown-menu { display: block !important; }
             .navbar-nav .dropdown-menu .dropdown-item {
-               color: #FFFFFF !important;
-               padding: 10px 20px !important;
-               font-weight: 600 !important;
-               transition: all 0.2s ease !important;
+               color: #FFFFFF !important; padding: 10px 20px !important; font-weight: 600 !important; transition: all 0.2s ease !important;
             }
-            
-            .navbar-nav .dropdown-menu .dropdown-item:hover {
-               background: rgba(250,178,101,0.2) !important;
-               color: #FAB265 !important;
-            }
-            
+            .navbar-nav .dropdown-menu .dropdown-item:hover { background: rgba(250,178,101,0.2) !important; color: #FAB265 !important; }
             .navbar-nav .nav-link {
-               color: #FFFFFF !important;
-               font-weight: 700 !important;
-               font-size: 15px !important;
-               padding: 12px 18px !important;
-               border-radius: 10px !important;
-               transition: all 0.3s ease !important;
+               color: #FFFFFF !important; font-weight: 700 !important; font-size: 15px !important;
+               padding: 12px 18px !important; border-radius: 10px !important; transition: all 0.3s ease !important;
             }
-            
-            .navbar-nav .nav-link:hover {
-               color: #FAB265 !important;
-               background: rgba(250,178,101,0.15) !important;
-            }
-            
-            ::-webkit-scrollbar {
-               width: 10px;
-            }
-            
-            ::-webkit-scrollbar-track {
-               background: #050504;
-            }
-            
-            ::-webkit-scrollbar-thumb {
-               background: linear-gradient(180deg, #FD1C0A, #FAB265);
-               border-radius: 10px;
-            }
+            .navbar-nav .nav-link:hover { color: #FAB265 !important; background: rgba(250,178,101,0.15) !important; }
+            ::-webkit-scrollbar { width: 10px; }
+            ::-webkit-scrollbar-track { background: #050504; }
+            ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #FD1C0A, #FAB265); border-radius: 10px; }
          `}</style>
       </>
    );

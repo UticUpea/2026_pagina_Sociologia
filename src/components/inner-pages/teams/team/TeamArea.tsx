@@ -13,59 +13,54 @@ interface AutoridadItem {
    id?: number;
 }
 
-const API_BASE_URL = 'https://apiadministrador.upea.bo';
-const API_TOKEN = '130143e7a5de4f3524cae21a8f333b85e82a9ac037f111d9d1fbad23edecccc1';
-const INSTITUCION_ID = "35";
+// =============================================
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
+// =============================================
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
 
-const HARDCODED_DATA: AutoridadItem[] = [
-   {
-      id: 102,
-      nombre_autoridad: "LIC. AURELIO CHURA MAMANI",
-      cargo_autoridad: "DIRECTOR DE CARRERA",
-      foto_autoridad: "805777c9-94df-44de-b18d-d183c5bfcec1.jpg",
-      celular_autoridad: "",
-      facebook_autoridad: "",
-      twitter_autoridad: "",
-      email_autoridad: ""
-   },
-   {
-      id: 103,
-      nombre_autoridad: "Lic. SECUNDINO CONDE LOPEZ",
-      cargo_autoridad: "ASOCIACIÓN DE DOCENTES DE SOCIOLOGIA",
-      foto_autoridad: "256055e4-c4b8-407e-b7a2-443629ae6bc1.jpg",
-      celular_autoridad: "",
-      facebook_autoridad: "",
-      twitter_autoridad: "",
-      email_autoridad: ""
-   },
-   {
-      id: 172,
-      nombre_autoridad: "UNIV. NILSON GALO CONDORI CHAMBI",
-      cargo_autoridad: "STRIO. EJECUTIVO CENTRO DE ESTUDIANTES SOCIOLOGIA",
-      foto_autoridad: "4ece64e6-b092-4dbf-bae4-2af7269eed33.jpg",
-      celular_autoridad: "",
-      facebook_autoridad: "",
-      twitter_autoridad: "",
-      email_autoridad: ""
-   },
-   {
-      id: 173,
-      nombre_autoridad: "LIC. RIMBER ORLANDO GUTIERREZ LIMACHI",
-      cargo_autoridad: "COORDINADOR DEL INSTITUTO DE INVESTIGACIONES SOCIALES \"PABLO ZARATE WILLKA\"",
-      foto_autoridad: "c2b038cc-d0cf-42fb-8527-73472f5a4a40.jpg",
-      celular_autoridad: "",
-      facebook_autoridad: "",
-      twitter_autoridad: "",
-      email_autoridad: ""
-   }
-];
+// =============================================
+// UTILIDADES - Manejo Inteligente de Imágenes
+// =============================================
 
-const buildImageUrl = (fileName: string | null | undefined): string => {
-   if (!fileName) return '/images/placeholder.png';
-   const cleanName = fileName.trim();
-   if (cleanName.startsWith('http')) return cleanName;
-   if (cleanName.startsWith('/storage/')) return `${API_BASE_URL}${cleanName}`;
-   return `/api/recurso?file=${encodeURIComponent(cleanName)}`;
+/**
+ * Construye URL completa para imágenes de autoridades
+ * ✅ URL completa (http/https) → Retorna tal cual (MinIO o externo)
+ * ✅ Ruta relativa (/storage/...) → Agrega API_BASE_URL
+ * ✅ UUID/filename → Agrega carpeta de autoridades
+ */
+const buildImageUrl = (
+  imagePath: string | null | undefined,
+  type: 'autoridad' | 'logo' | 'portada' | 'evento' | 'curso' | 'convocatoria' | 'gaceta' = 'autoridad'
+): string => {
+  if (!imagePath) return '/images/placeholder.png';
+  
+  const cleanPath = imagePath.trim();
+  
+  // ✅ CASO 1: Ya es URL completa (MinIO o externo) → NO modificar
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    return cleanPath;
+  }
+  
+  // ✅ CASO 2: Ruta relativa /storage/... → Agregar API_BASE_URL
+  if (cleanPath.startsWith('/storage/')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+  
+  // ✅ CASO 3: UUID o filename → Construir URL con carpeta según tipo
+  const typeFolders: Record<string, string> = {
+    autoridad: '/storage/imagenes/autoridades/',
+    logo: '/storage/imagenes/logos/',
+    portada: '/storage/imagenes/portadas/',
+    evento: '/storage/imagenes/eventos/',
+    curso: '/storage/imagenes/cursos/',
+    convocatoria: '/storage/imagenes/convocatorias/',
+    gaceta: '/storage/imagenes/gacetas/'
+  };
+  
+  const folder = typeFolders[type] || '/storage/imagenes/';
+  return `${API_BASE_URL}${folder}${cleanPath}`;
 };
 
 const getInitials = (name: string): string => {
@@ -73,26 +68,39 @@ const getInitials = (name: string): string => {
    return name.split(' ').map(n => n[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
 };
 
+// =============================================
+// COMPONENTE PRINCIPAL
+// =============================================
 const TeamArea: React.FC = () => {
    const [autoridades, setAutoridades] = useState<AutoridadItem[]>([]);
    const [loading, setLoading] = useState<boolean>(true);
+   const [error, setError] = useState<string | null>(null);
 
    useEffect(() => {
       const fetchAutoridades = async () => {
          try {
+            console.log('🔄 [TeamArea] API:', API_BASE_URL);
+            console.log('📋 Institución ID:', INSTITUCION_ID);
+            
+            // ✅ Headers con variables de entorno
             const headers: HeadersInit = { 
                'Content-Type': 'application/json',
-               'Authorization': `Bearer ${API_TOKEN}`
             };
+            if (API_TOKEN) {
+               headers['Authorization'] = `Bearer ${API_TOKEN}`;
+            }
             
+            // ✅ URL con variables de entorno
             const response = await fetch(
                `${API_BASE_URL}/api/v2/institucion/${INSTITUCION_ID}/contenido`,
-               { method: 'GET', headers, mode: 'cors' }
+               { method: 'GET', headers, cache: 'no-store' }
             );
             
             if (response.ok) {
                const data = await response.json();
                const lista = data?.autoridad || [];
+               
+               console.log('✅ [TeamArea] Autoridades cargadas:', lista.length);
                
                if (lista.length > 0) {
                   const normalized = lista.map((item: any, idx: number): AutoridadItem => ({
@@ -107,19 +115,21 @@ const TeamArea: React.FC = () => {
                   }));
                   
                   setAutoridades(normalized);
-                  setLoading(false);
-                  return;
+               } else {
+                  setAutoridades([]);
                }
+            } else {
+               console.error('❌ Error API:', response.status);
+               setError(`Error ${response.status} al cargar autoridades`);
+               setAutoridades([]);
             }
             
-            // Fallback a datos hardcodeados
-            console.warn('⚠️ Usando datos hardcodeados');
-            setAutoridades(HARDCODED_DATA);
             setLoading(false);
             
-         } catch (error) {
-            console.error('❌ Error:', error);
-            setAutoridades(HARDCODED_DATA);
+         } catch (error: any) {
+            console.error('❌ Error crítico:', error?.message);
+            setError(error?.message || 'Error de conexión con el servidor');
+            setAutoridades([]);
             setLoading(false);
          }
       };
@@ -136,7 +146,40 @@ const TeamArea: React.FC = () => {
                      <div className="spinner-border text-primary" role="status">
                         <span className="visually-hidden">Cargando...</span>
                      </div>
-                     <p className="mt-3">Cargando autoridades...</p>
+                     <p className="mt-3">
+                        Conectando con: {API_BASE_URL}
+                     </p>
+                  </div>
+               </div>
+            </div>
+         </section>
+      );
+   }
+
+   if (error) {
+      return (
+         <section className="team-area pd-top-120 pd-bottom-90">
+            <div className="container">
+               <div className="row justify-content-center">
+                  <div className="col-lg-8 text-center">
+                     <div className="alert alert-warning p-4" style={{ 
+                        borderRadius: '12px',
+                        background: '#fff3cd',
+                        border: '2px solid #ffc107'
+                     }}>
+                        <i className="fa fa-exclamation-triangle fa-2x mb-3" style={{ color: '#856404' }}></i>
+                        <h5 className="text-warning mb-2">Error al Cargar</h5>
+                        <p className="mb-0 text-muted">{error}</p>
+                        <p className="text-muted small mt-2">
+                           API: {API_BASE_URL} | ID: {INSTITUCION_ID}
+                        </p>
+                        <button 
+                           onClick={() => window.location.reload()}
+                           className="btn btn-warning btn-sm mt-3"
+                        >
+                           <i className="fa fa-refresh me-1"></i> Reintentar
+                        </button>
+                     </div>
                   </div>
                </div>
             </div>
@@ -151,53 +194,90 @@ const TeamArea: React.FC = () => {
                <div className="col-lg-7 text-center">
                   <h6 className="sub-title" style={{ color: '#FD1C0A' }}>SOCIOLOGÍA</h6>
                   <h2 className="title">AUTORIDADES</h2>
+                  <p className="text-muted small mt-2">
+                     <i className="fa fa-database me-1"></i>
+                     API: {API_BASE_URL} | Institución: {INSTITUCION_ID}
+                  </p>
                </div>
             </div>
             
             <div className="row justify-content-center g-4">
-               {autoridades.map((auth, index) => {
-                  const imageUrl = buildImageUrl(auth.foto_autoridad);
-                  const initials = getInitials(auth.nombre_autoridad);
-                  
-                  return (
-                     <div key={auth.id || index} className="col-lg-4 col-md-6">
-                        <article className="team-member-card h-100" style={{
-                           borderRadius: "12px",
-                           overflow: "hidden",
-                           boxShadow: "0 10px 20px rgba(0,0,0,0.08)",
-                           background: "#fff"
-                        }}>
-                           <div style={{ width: "100%", height: "260px", background: "#f8f9fa", position: "relative" }}>
-                              <Image
-                                 src={imageUrl}
-                                 alt={auth.nombre_autoridad}
-                                 width={600}
-                                 height={260}
-                                 style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                                 unoptimized={imageUrl.startsWith('http')}
-                                 onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    target.style.display = 'none';
-                                    const fallback = document.createElement('div');
-                                    fallback.style.cssText = `width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#FD1C0A,#FAB265);color:#fff;font-size:3rem;font-weight:700;`;
-                                    fallback.textContent = initials;
-                                    target.parentNode?.appendChild(fallback);
-                                 }}
-                              />
-                           </div>
-                           
-                           <div className="p-3">
-                              <h5 style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: "0.5rem", color: "#212529" }}>
-                                 {auth.nombre_autoridad}
-                              </h5>
-                              <p style={{ color: "#6c757d", fontSize: "0.9rem", marginBottom: 0 }}>
-                                 {auth.cargo_autoridad}
-                              </p>
-                           </div>
-                        </article>
+               {autoridades.length === 0 ? (
+                  <div className="col-12 text-center">
+                     <div className="alert alert-info p-4" style={{ 
+                        borderRadius: '12px',
+                        background: '#e7f3ff',
+                        border: '2px solid #0d6efd'
+                     }}>
+                        <i className="fa fa-users fa-2x mb-3" style={{ color: '#0d6efd' }}></i>
+                        <h5 className="text-primary mb-2">Sin Autoridades Disponibles</h5>
+                        <p className="mb-0 text-muted">
+                           Las autoridades se mostrarán aquí cuando la administración las publique.
+                        </p>
+                        <p className="text-muted small mt-2">
+                           API: {API_BASE_URL} | ID: {INSTITUCION_ID}
+                        </p>
                      </div>
-                  );
-               })}
+                  </div>
+               ) : (
+                  autoridades.map((auth, index) => {
+                     // ✅ Construir URL de imagen inteligente
+                     const imageUrl = buildImageUrl(auth.foto_autoridad, 'autoridad');
+                     const initials = getInitials(auth.nombre_autoridad);
+                     const isExternalImage = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+                     
+                     return (
+                        <div key={auth.id || index} className="col-lg-4 col-md-6">
+                           <article className="team-member-card h-100" style={{
+                              borderRadius: "12px",
+                              overflow: "hidden",
+                              boxShadow: "0 10px 20px rgba(0,0,0,0.08)",
+                              background: "#fff",
+                              transition: "transform 0.3s ease, box-shadow 0.3s ease"
+                           }}
+                           onMouseEnter={(e: any) => {
+                              e.currentTarget.style.transform = 'translateY(-8px)';
+                              e.currentTarget.style.boxShadow = '0 20px 40px rgba(0,0,0,0.15)';
+                           }}
+                           onMouseLeave={(e: any) => {
+                              e.currentTarget.style.transform = 'translateY(0)';
+                              e.currentTarget.style.boxShadow = '0 10px 20px rgba(0,0,0,0.08)';
+                           }}
+                           >
+                              <div style={{ width: "100%", height: "260px", background: "#f8f9fa", position: "relative" }}>
+                                 <Image
+                                    src={imageUrl}
+                                    alt={auth.nombre_autoridad}
+                                    width={600}
+                                    height={260}
+                                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                    // ✅ No optimizar si es URL externa (MinIO)
+                                    unoptimized={isExternalImage}
+                                    onError={(e) => {
+                                       const target = e.target as HTMLImageElement;
+                                       target.style.display = 'none';
+                                       const fallback = document.createElement('div');
+                                       fallback.style.cssText = `width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#FD1C0A,#FAB265);color:#fff;font-size:3rem;font-weight:700;`;
+                                       fallback.textContent = initials;
+                                       target.parentNode?.appendChild(fallback);
+                                    }}
+                                    loading="lazy"
+                                 />
+                              </div>
+                              
+                              <div className="p-3">
+                                 <h5 style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: "0.5rem", color: "#212529" }}>
+                                    {auth.nombre_autoridad}
+                                 </h5>
+                                 <p style={{ color: "#6c757d", fontSize: "0.9rem", marginBottom: 0 }}>
+                                    {auth.cargo_autoridad}
+                                 </p>
+                              </div>
+                           </article>
+                        </div>
+                     );
+                  })
+               )}
             </div>
          </div>
       </section>

@@ -18,20 +18,60 @@ interface BreadcrumbProps {
 }
 
 // =============================================
-// CONFIGURACIÓN - URLs DIRECTAS SIN PROXY
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
 // =============================================
-const API_BASE_URL = 'https://apiadministrador.upea.bo';
-const API_TOKEN = '130143e7a5de4f3524cae21a8f333b85e82a9ac037f111d9d1fbad23edecccc1';
-const INSTITUCION_ID = "35";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
 
 // ✅ IDs DE PORTADAS ALEATORIAS (238, 239, 240)
 const PORTADA_IDS_RANDOM = [238, 239, 240];
 
 // =============================================
-// UTILIDADES
+// UTILIDADES - Manejo Inteligente de Imágenes
 // =============================================
 
-// ✅ FUNCIÓN PARA SELECCIONAR PORTADA RANDOM (IDs 238-240)
+/**
+ * Construye URL completa para imágenes de portadas
+ * ✅ URL completa (http/https) → Retorna tal cual (MinIO o externo)
+ * ✅ Ruta relativa (/storage/...) → Agrega API_BASE_URL
+ * ✅ UUID/filename → Agrega carpeta de portadas
+ */
+const buildPortadaUrl = (
+  imagenPath: string | null | undefined,
+  type: 'portada' | 'evento' | 'curso' | 'convocatoria' | 'gaceta' | 'autoridad' = 'portada'
+): string => {
+  if (!imagenPath) return '/assets/img/sociologia3.jpg';
+  
+  const cleanPath = imagenPath.trim();
+  
+  // ✅ CASO 1: Ya es URL completa (MinIO o externo) → NO modificar
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    return cleanPath;
+  }
+  
+  // ✅ CASO 2: Ruta relativa /storage/... → Agregar API_BASE_URL
+  if (cleanPath.startsWith('/storage/')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+  
+  // ✅ CASO 3: UUID o filename → Construir URL con carpeta según tipo
+  const typeFolders: Record<string, string> = {
+    portada: '/storage/imagenes/portadas/',
+    evento: '/storage/imagenes/eventos/',
+    curso: '/storage/imagenes/cursos/',
+    convocatoria: '/storage/imagenes/convocatorias/',
+    gaceta: '/storage/imagenes/gacetas/',
+    autoridad: '/storage/imagenes/autoridades/'
+  };
+  
+  const folder = typeFolders[type] || '/storage/imagenes/';
+  return `${API_BASE_URL}${folder}${cleanPath}`;
+};
+
+/**
+ * Selecciona portada random de los IDs configurados
+ */
 const getRandomPortada = (portadas: PortadaData[]): PortadaData | null => {
    const portadasFiltradas = portadas.filter(p => 
       PORTADA_IDS_RANDOM.includes(p.portada_id)
@@ -43,17 +83,8 @@ const getRandomPortada = (portadas: PortadaData[]): PortadaData | null => {
    return portadasFiltradas[randomIndex];
 };
 
-// ✅ CONSTRUIR URL DE PORTADA
-const buildPortadaUrl = (imagenPath: string | null | undefined): string => {
-   if (!imagenPath) return '/assets/img/sociologia3.jpg';
-   const cleanPath = imagenPath.trim();
-   if (cleanPath.startsWith('http')) return cleanPath;
-   if (cleanPath.startsWith('/storage/')) return `${API_BASE_URL}${cleanPath}`;
-   return `${API_BASE_URL}/storage/imagenes/portadas/${cleanPath}`;
-};
-
 // =============================================
-// COMPONENTE - CONSUMIENDO PORTADA RANDOM ✨
+// COMPONENTE PRINCIPAL
 // =============================================
 const Breadcrumb: React.FC<BreadcrumbProps> = ({ title, sub_title }) => {
    const [portadaUrl, setPortadaUrl] = useState<string>('/assets/img/sociologia3.jpg');
@@ -62,8 +93,8 @@ const Breadcrumb: React.FC<BreadcrumbProps> = ({ title, sub_title }) => {
    useEffect(() => {
       const fetchPortada = async () => {
          try {
-            console.log('🔄 [Breadcrumb] Cargando portada desde:', 
-               `${API_BASE_URL}/api/v2/institucion/${INSTITUCION_ID}/contenido`);
+            console.log('🔄 [Breadcrumb] API:', API_BASE_URL);
+            console.log('📋 Institución ID:', INSTITUCION_ID);
             
             const response = await fetch(
                `${API_BASE_URL}/api/v2/institucion/${INSTITUCION_ID}/contenido`,
@@ -71,7 +102,7 @@ const Breadcrumb: React.FC<BreadcrumbProps> = ({ title, sub_title }) => {
                   method: 'GET',
                   headers: {
                      'Content-Type': 'application/json',
-                     'Authorization': `Bearer ${API_TOKEN}`
+                     ...(API_TOKEN && { 'Authorization': `Bearer ${API_TOKEN}` })
                   },
                   cache: 'no-store'
                }
@@ -91,7 +122,8 @@ const Breadcrumb: React.FC<BreadcrumbProps> = ({ title, sub_title }) => {
                      titulo: portadaRandom.portada_titulo
                   });
                   
-                  const fullUrl = buildPortadaUrl(portadaRandom.portada_imagen);
+                  // ✅ Construir URL inteligente
+                  const fullUrl = buildPortadaUrl(portadaRandom.portada_imagen, 'portada');
                   console.log('🖼️ [Breadcrumb] URL de portada:', fullUrl);
                   setPortadaUrl(fullUrl);
                } else {

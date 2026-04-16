@@ -1,6 +1,6 @@
 "use client";
 import React, { useEffect, useState } from 'react';
-import Image from 'next/image';
+import Image from 'next/image'; // ✅ Ya importado
 import Link from 'next/link';
 import { CSSProperties } from 'react';
 
@@ -25,21 +25,52 @@ interface Curso {
 }
 
 // =============================================
-// CONSTANTES - SOLO ID 35 (SOCIOLOGÍA)
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
 // =============================================
-const API_BASE_URL = 'https://apiadministrador.upea.bo';
-const API_TOKEN = '130143e7a5de4f3524cae21a8f333b85e82a9ac037f111d9d1fbad23edecccc1';
-const INSTITUCION_ID = "35"; // ✅ SOLO SOCIOLOGÍA
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
 
 // =============================================
-// UTILIDADES
+// UTILIDADES - Manejo Inteligente de Imágenes
 // =============================================
-const buildImageUrl = (fileName: string | null | undefined): string => {
-   if (!fileName) return '/images/placeholder-course.jpg';
-   const cleanName = fileName.trim();
-   if (cleanName.startsWith('http')) return cleanName;
-   if (cleanName.startsWith('/storage/')) return `${API_BASE_URL}${cleanName}`;
-   return `${API_BASE_URL}${cleanName}`;
+
+/**
+ * Construye URL completa para imágenes de cursos
+ * ✅ URL completa (http/https) → Retorna tal cual (MinIO o externo)
+ * ✅ Ruta relativa (/storage/...) → Agrega API_BASE_URL
+ * ✅ UUID/filename → Agrega carpeta de cursos
+ */
+const buildImageUrl = (
+  imagePath: string | null | undefined,
+  type: 'curso' | 'convocatoria' | 'evento' | 'gaceta' | 'autoridad' | 'portada' = 'curso'
+): string => {
+  if (!imagePath) return '/images/placeholder-course.jpg';
+  
+  const cleanPath = imagePath.trim();
+  
+  // ✅ CASO 1: Ya es URL completa (MinIO o externo) → NO modificar
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    return cleanPath;
+  }
+  
+  // ✅ CASO 2: Ruta relativa /storage/... → Agregar API_BASE_URL
+  if (cleanPath.startsWith('/storage/')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+  
+  // ✅ CASO 3: UUID o filename → Construir URL con carpeta según tipo
+  const typeFolders: Record<string, string> = {
+    curso: '/storage/imagenes/cursos/',
+    convocatoria: '/storage/imagenes/convocatorias/',
+    evento: '/storage/imagenes/eventos/',
+    gaceta: '/storage/imagenes/gacetas/',
+    autoridad: '/storage/imagenes/autoridades/',
+    portada: '/storage/imagenes/portadas/'
+  };
+  
+  const folder = typeFolders[type] || '/storage/imagenes/';
+  return `${API_BASE_URL}${folder}${cleanPath}`;
 };
 
 const formatDate = (dateString: string): string => {
@@ -57,7 +88,7 @@ const formatPrice = (price: number | null): string => {
 };
 
 // =============================================
-// COMPONENTE - SOLO ID 35 ✨
+// COMPONENTE PRINCIPAL
 // =============================================
 const CourseGridArea: React.FC = () => {
    const [cursos, setCursos] = useState<Curso[]>([]);
@@ -69,13 +100,14 @@ const CourseGridArea: React.FC = () => {
          try {
             setLoading(true);
             setError(null);
-            console.log(`🔄 [Cursos] Cargando desde ID ${INSTITUCION_ID} (Sociología)...`);
+            console.log(`🔄 [Cursos] API: ${API_BASE_URL}`);
+            console.log(`📋 Institución ID: ${INSTITUCION_ID}`);
             
-            // ✅ LLAMADA DIRECTA SIN PROXY
+            // ✅ LLAMADA CON VARIABLES DE ENTORNO
             const url = `${API_BASE_URL}/api/v2/institucion/${INSTITUCION_ID}/gacetaEventos`;
             const headers: HeadersInit = { 
                'Content-Type': 'application/json',
-               'Authorization': `Bearer ${API_TOKEN}`
+               ...(API_TOKEN && { 'Authorization': `Bearer ${API_TOKEN}` })
             };
             
             const response = await fetch(url, { 
@@ -102,7 +134,7 @@ const CourseGridArea: React.FC = () => {
             setLoading(false);
          } catch (error) {
             console.error('❌ Error crítico cargando cursos:', error);
-            setError('Error de conexión');
+            setError('Error de conexión con el servidor');
             setLoading(false);
          }
       };
@@ -111,7 +143,7 @@ const CourseGridArea: React.FC = () => {
    }, []);
 
    // =============================================
-   // ESTILOS VISUALES - FONDO OSCURO INSTITUCIONAL 🎨
+   // ESTILOS VISUALES
    // =============================================
    const courseStyles = {
       section: {
@@ -179,7 +211,7 @@ const CourseGridArea: React.FC = () => {
          borderRadius: '20px',
          boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
          border: '2px solid rgba(250,178,101,0.2)',
-         overflow: 'hidden',
+         overflow: 'hidden' as const,
          transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
          backdropFilter: 'blur(10px)',
          height: '100%',
@@ -321,7 +353,7 @@ const CourseGridArea: React.FC = () => {
                   Cargando Cursos
                </h3>
                <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '1.1rem' }}>
-                  Obteniendo cursos de Sociología...
+                  Conectando con: {API_BASE_URL}
                </p>
             </div>
          </section>
@@ -342,9 +374,12 @@ const CourseGridArea: React.FC = () => {
                            display: 'block'
                         }}></i>
                         <h3 style={{ color: '#FFFFFF', fontWeight: 700, marginBottom: '12px' }}>
-                           ⚠️ Error al Cargar
+                            Error al Cargar
                         </h3>
                         <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '1.05rem', marginBottom: '24px' }}>{error}</p>
+                        <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.9rem' }}>
+                           API: {API_BASE_URL} | Institución: {INSTITUCION_ID}
+                        </p>
                         <button 
                            onClick={() => window.location.reload()}
                            style={{
@@ -382,15 +417,11 @@ const CourseGridArea: React.FC = () => {
 
    return (
       <section className="course-area pd-top-120 pd-bottom-90" style={courseStyles.section}>
-         {/* Elemento decorativo de fondo */}
          <div style={courseStyles.decorativeBg} />
          
          <div className="container" style={{ position: 'relative', zIndex: 1 }}>
-            
-            {/* Header de Sección */}
             <div className="row justify-content-center mb-5" style={courseStyles.header}>
                <div className="col-lg-8 text-center">
-                  
                   <h2 className="title" style={courseStyles.sectionTitle}>
                      CURSOS ACADÉMICOS
                      <span style={courseStyles.titleLine} />
@@ -401,11 +432,7 @@ const CourseGridArea: React.FC = () => {
                      NUESTROS CURSOS
                   </h6>
                   
-                  <p style={courseStyles.sectionDescription}>
-                     <i className="fa fa-book me-2"></i>
-                     Fuente: Sociología (ID {INSTITUCION_ID})
-                  </p>
-                  
+            
                </div>
             </div>
 
@@ -430,119 +457,135 @@ const CourseGridArea: React.FC = () => {
                </div>
             ) : (
                <div className="row g-4">
-                  {cursos.map((curso) => (
-                     <div key={curso.iddetalle_cursos_academicos} className="col-lg-4 col-md-6">
-                        <article 
-                           style={courseStyles.card}
-                           onMouseEnter={(e: any) => {
-                              Object.assign(e.currentTarget.style, courseStyles.cardHover);
-                              const img = e.currentTarget.querySelector('.course-image');
-                              if (img) Object.assign(img.style, { transform: 'scale(1.1)' });
-                           }}
-                           onMouseLeave={(e: any) => {
-                              Object.assign(e.currentTarget.style, {
-                                 transform: 'translateY(0)',
-                                 boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-                                 borderColor: 'rgba(250,178,101,0.2)',
-                                 background: 'rgba(255,255,255,0.08)'
-                              });
-                              const img = e.currentTarget.querySelector('.course-image');
-                              if (img) Object.assign(img.style, { transform: 'scale(1)' });
-                           }}
-                        >
-                           {/* Imagen del curso */}
-                           <div style={courseStyles.imageWrapper}>
-                              <img
-                                 src={buildImageUrl(curso.det_img_portada)}
-                                 alt={curso.det_titulo}
-                                 className="course-image"
-                                 style={{ 
-                                    width: '100%', 
-                                    height: '100%', 
-                                    objectFit: 'cover',
-                                    transition: 'transform 0.4s ease'
-                                 }}
-                              />
-                              
-                              {/* Badge de tipo de curso */}
-                              {curso.tipo_curso_otro && (
-                                 <span style={courseStyles.badge}>
-                                    {curso.tipo_curso_otro.tipo_conv_curso_nombre}
-                                 </span>
-                              )}
-                           </div>
-                           
-                           {/* Contenido */}
-                           <div style={courseStyles.content}>
-                              
-                              {/* Título */}
-                              <h5 style={courseStyles.title}>
-                                 {curso.det_titulo}
-                              </h5>
-                              
-                              {/* Descripción */}
-                              {curso.det_descripcion && (
-                                 <div style={courseStyles.description}
-                                    dangerouslySetInnerHTML={{ 
-                                       __html: curso.det_descripcion.replace(/<[^>]*>/g, '').substring(0, 120) + '...' 
+                  {cursos.map((curso) => {
+                     // ✅ Construir URL de imagen inteligente
+                     const imageUrl = buildImageUrl(curso.det_img_portada, 'curso');
+                     // ✅ Detectar si es URL externa para unoptimized
+                     const isExternalImage = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+                     
+                     return (
+                        <div key={curso.iddetalle_cursos_academicos} className="col-lg-4 col-md-6">
+                           <article 
+                              style={courseStyles.card}
+                              onMouseEnter={(e: any) => {
+                                 Object.assign(e.currentTarget.style, courseStyles.cardHover);
+                                 const img = e.currentTarget.querySelector('.course-image');
+                                 if (img) Object.assign(img.style, { transform: 'scale(1.1)' });
+                              }}
+                              onMouseLeave={(e: any) => {
+                                 Object.assign(e.currentTarget.style, {
+                                    transform: 'translateY(0)',
+                                    boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+                                    borderColor: 'rgba(250,178,101,0.2)',
+                                    background: 'rgba(255,255,255,0.08)'
+                                 });
+                                 const img = e.currentTarget.querySelector('.course-image');
+                                 if (img) Object.assign(img.style, { transform: 'scale(1)' });
+                              }}
+                           >
+                              {/* Imagen del curso */}
+                              <div style={courseStyles.imageWrapper}>
+                                 {/* ✅ REEMPLAZADO: <img> → <Image /> de Next.js */}
+                                 <Image
+                                    src={imageUrl}
+                                    alt={curso.det_titulo}
+                                    width={500}
+                                    height={300}
+                                    className="course-image"
+                                    style={{ 
+                                       width: '100%', 
+                                       height: '100%', 
+                                       objectFit: 'cover',
+                                       transition: 'transform 0.4s ease'
                                     }}
+                                    // ✅ No optimizar si es URL externa (MinIO)
+                                    unoptimized={isExternalImage}
+                                    // ✅ Fallback si la imagen falla
+                                    onError={(e) => {
+                                       const target = e.target as HTMLImageElement;
+                                       target.src = '/images/placeholder-course.jpg';
+                                    }}
+                                    loading="lazy"
                                  />
-                              )}
-                              
-                              {/* Información del curso */}
-                              {curso.det_carga_horaria && (
-                                 <div style={courseStyles.infoBox}>
-                                    <i className="fa fa-clock-o" style={{ color: '#FAB265' }}></i>
-                                    <strong>Duración:</strong> {curso.det_carga_horaria} hrs
-                                 </div>
-                              )}
-                              
-                              {curso.det_modalidad && (
-                                 <div style={courseStyles.infoBox}>
-                                    <i className="fa fa-laptop" style={{ color: '#FAB265' }}></i>
-                                    <strong>Modalidad:</strong> {curso.det_modalidad}
-                                 </div>
-                              )}
-                              
-                              {curso.det_lugar_curso && (
-                                 <div style={courseStyles.infoBox}>
-                                    <i className="fa fa-map-marker" style={{ color: '#FAB265' }}></i>
-                                    <strong>Lugar:</strong> {curso.det_lugar_curso}
-                                 </div>
-                              )}
-                              
-                              {curso.det_fecha_ini && (
-                                 <div style={courseStyles.infoBox}>
-                                    <i className="fa fa-calendar" style={{ color: '#FAB265' }}></i>
-                                    <strong>Inicio:</strong> {formatDate(curso.det_fecha_ini)}
-                                 </div>
-                              )}
-                              
-                              {/* Precio */}
-                              <div style={courseStyles.price}>
-                                 <i className="fa fa-money"></i>
-                                 {formatPrice(curso.det_costo)}
+                                 
+                                 {/* Badge de tipo de curso */}
+                                 {curso.tipo_curso_otro && (
+                                    <span style={courseStyles.badge}>
+                                       {curso.tipo_curso_otro.tipo_conv_curso_nombre}
+                                    </span>
+                                 )}
                               </div>
                               
-                              {/* Botón Ver más */}
-                              <Link 
-                                 href={`/course-details/${curso.iddetalle_cursos_academicos}`}
-                                 style={courseStyles.button}
-                                 onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, courseStyles.buttonHover)}
-                                 onMouseLeave={(e: any) => Object.assign(e.currentTarget.style, courseStyles.button)}
-                              >
-                                 Ver más detalles <i className="fa fa-arrow-right"></i>
-                              </Link>
-                              
-                           </div>
-                        </article>
-                     </div>
-                  ))}
+                              {/* Contenido */}
+                              <div style={courseStyles.content}>
+                                 
+                                 {/* Título */}
+                                 <h5 style={courseStyles.title}>
+                                    {curso.det_titulo}
+                                 </h5>
+                                 
+                                 {/* Descripción */}
+                                 {curso.det_descripcion && (
+                                    <div style={courseStyles.description}
+                                       dangerouslySetInnerHTML={{ 
+                                          __html: curso.det_descripcion.replace(/<[^>]*>/g, '').substring(0, 120) + '...' 
+                                       }}
+                                    />
+                                 )}
+                                 
+                                 {/* Información del curso */}
+                                 {curso.det_carga_horaria && (
+                                    <div style={courseStyles.infoBox}>
+                                       <i className="fa fa-clock-o" style={{ color: '#FAB265' }}></i>
+                                       <strong>Duración:</strong> {curso.det_carga_horaria} hrs
+                                    </div>
+                                 )}
+                                 
+                                 {curso.det_modalidad && (
+                                    <div style={courseStyles.infoBox}>
+                                       <i className="fa fa-laptop" style={{ color: '#FAB265' }}></i>
+                                       <strong>Modalidad:</strong> {curso.det_modalidad}
+                                    </div>
+                                 )}
+                                 
+                                 {curso.det_lugar_curso && (
+                                    <div style={courseStyles.infoBox}>
+                                       <i className="fa fa-map-marker" style={{ color: '#FAB265' }}></i>
+                                       <strong>Lugar:</strong> {curso.det_lugar_curso}
+                                    </div>
+                                 )}
+                                 
+                                 {curso.det_fecha_ini && (
+                                    <div style={courseStyles.infoBox}>
+                                       <i className="fa fa-calendar" style={{ color: '#FAB265' }}></i>
+                                       <strong>Inicio:</strong> {formatDate(curso.det_fecha_ini)}
+                                    </div>
+                                 )}
+                                 
+                                 {/* Precio */}
+                                 <div style={courseStyles.price}>
+                                    <i className="fa fa-money"></i>
+                                    {formatPrice(curso.det_costo)}
+                                 </div>
+                                 
+                                 {/* Botón Ver más */}
+                                 <Link 
+                                    href={`/course-details/${curso.iddetalle_cursos_academicos}`}
+                                    style={courseStyles.button}
+                                    onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, courseStyles.buttonHover)}
+                                    onMouseLeave={(e: any) => Object.assign(e.currentTarget.style, courseStyles.button)}
+                                 >
+                                    Ver más detalles <i className="fa fa-arrow-right"></i>
+                                 </Link>
+                              </div>
+                           </article>
+                        </div>
+                     );
+                  })}
                </div>
             )}
          </div>
          
-         {/* CSS Global para animaciones */}
          <style jsx global>{`
             @keyframes spin {
                from { transform: rotate(0deg); }

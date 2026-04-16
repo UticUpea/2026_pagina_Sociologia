@@ -36,15 +36,17 @@ export interface InstitucionData {
 }
 
 // =============================================
-// CONSTANTES - SOLO ID 35 (SOCIOLOGÍA)
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
 // =============================================
-const INSTITUCION_ID = "35";
-const API_BASE_URL = 'https://apiadministrador.upea.bo';
-const API_TOKEN = '130143e7a5de4f3524cae21a8f333b85e82a9ac037f111d9d1fbad23edecccc1';
-const TARGET_COLOR_ID = 32;
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
+const TARGET_COLOR_ID = process.env.NEXT_PUBLIC_COLOR_ID 
+   ? parseInt(process.env.NEXT_PUBLIC_COLOR_ID, 10) 
+   : 32;
 
 // =============================================
-// MENÚ ESTÁTICO - SOLO PARA ESTRUCTURA INICIAL
+// MENÚ ESTÁTICO - SOLO PARA ESTRUCTURA INICIAL (FALLBACK)
 // =============================================
 const DEFAULT_MENU: MenuItem[] = [
    {
@@ -109,8 +111,36 @@ const DEFAULT_MENU: MenuItem[] = [
 ];
 
 // =============================================
-// UTILIDADES
+// UTILIDADES - Manejo Inteligente de Imágenes y URLs
 // =============================================
+
+/**
+ * Construye URL completa para imágenes del logo
+ * ✅ URL completa (http/https) → Retorna tal cual (MinIO o externo)
+ * ✅ Ruta relativa (/storage/...) → Agrega API_BASE_URL
+ * ✅ UUID/filename → Agrega carpeta de logos
+ */
+const buildLogoUrl = (
+  logoPath: string | null | undefined
+): string => {
+  if (!logoPath) return '/assets/img/logo-sociologia.png';
+  
+  const cleanPath = logoPath.trim();
+  
+  // ✅ CASO 1: Ya es URL completa (MinIO o externo) → NO modificar
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    return cleanPath;
+  }
+  
+  // ✅ CASO 2: Ruta relativa /storage/... → Agregar API_BASE_URL
+  if (cleanPath.startsWith('/storage/')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+  
+  // ✅ CASO 3: UUID o filename → Construir URL con carpeta de logos
+  return `${API_BASE_URL}/storage/imagenes/logos/${cleanPath}`;
+};
+
 const isLightColor = (hex: string): boolean => {
    try {
       const clean = hex.replace('#', '');
@@ -137,14 +167,6 @@ const getTextShadow = (textColor: string): string => {
       : '0 1px 3px rgba(255, 255, 255, 0.3)';
 };
 
-const buildLogoUrl = (logoPath: string | null | undefined): string => {
-   if (!logoPath) return '/assets/img/logo-sociologia.png';
-   const cleanPath = logoPath.trim();
-   if (cleanPath.startsWith('http')) return cleanPath;
-   if (cleanPath.startsWith('/storage/')) return `${API_BASE_URL}${cleanPath}`;
-   return `${API_BASE_URL}/storage/imagenes/instituciones/${cleanPath}`;
-};
-
 const extractInstitutionalColors = (data: InstitucionData | null) => {
    if (!data?.colorinstitucion) return null;
    
@@ -161,13 +183,22 @@ const extractInstitutionalColors = (data: InstitucionData | null) => {
    };
 };
 
+// =============================================
+// SERVICIOS - CON VARIABLES DE ENTORNO (SIN PROXY)
+// =============================================
+
 const getMenuData = async (institucionId: string): Promise<MenuItem[]> => {
    try {
+      // ✅ URL directa con variables de entorno
       const url = `${API_BASE_URL}/api/v2/institucion/${institucionId}/menu`;
+      
       const headers: HeadersInit = { 
          'Content-Type': 'application/json',
-         'Authorization': `Bearer ${API_TOKEN}`
       };
+      
+      if (API_TOKEN) {
+         headers['Authorization'] = `Bearer ${API_TOKEN}`;
+      }
       
       const response = await fetch(url, { 
          method: 'GET', 
@@ -180,33 +211,39 @@ const getMenuData = async (institucionId: string): Promise<MenuItem[]> => {
          const menu = Array.isArray(data) ? data : data.menu || data.data?.menu || data.menus || DEFAULT_MENU;
          
          const filtered = (menu as MenuItem[])
-            .filter(item => item.visible !== false)
+            .filter((item: MenuItem) => item.visible !== false)
             .sort((a, b) => (a.orden || 999) - (b.orden || 999))
             .map(item => ({
                ...item,
                sub_menus: item.sub_menus
-                  ?.filter(sub => sub.visible !== false)
+                  ?.filter((sub: SubMenuItem) => sub.visible !== false)
                   .sort((a, b) => (a.orden || 999) - (b.orden || 999))
             }));
          
          return filtered;
       } else {
+         console.warn(`⚠️ [NavMenu] Error ${response.status} cargando menú, usando fallback`);
          return DEFAULT_MENU;
       }
       
    } catch (error) {
-      console.error('❌ [NavMenu] Error:', error);
+      console.error('❌ [NavMenu] Error cargando menú:', error);
       return DEFAULT_MENU;
    }
 };
 
 const getInstitucionData = async (institucionId: string): Promise<InstitucionData | null> => {
    try {
+      // ✅ URL directa con variables de entorno
       const url = `${API_BASE_URL}/api/v2/institucionesPrincipal/${institucionId}`;
+      
       const headers: HeadersInit = { 
          'Content-Type': 'application/json',
-         'Authorization': `Bearer ${API_TOKEN}`
       };
+      
+      if (API_TOKEN) {
+         headers['Authorization'] = `Bearer ${API_TOKEN}`;
+      }
       
       const response = await fetch(url, { 
          method: 'GET', 
@@ -221,13 +258,13 @@ const getInstitucionData = async (institucionId: string): Promise<InstitucionDat
       }
       return null;
    } catch (error) {
-      console.error('❌ [NavMenu] Error:', error);
+      console.error('❌ [NavMenu] Error cargando institución:', error);
       return null;
    }
 };
 
 // =============================================
-// COMPONENTE PRINCIPAL - VERSIÓN FOOTER ✨
+// COMPONENTE PRINCIPAL
 // =============================================
 const NavMenu: React.FC<{
    variant?: 'header' | 'footer';
@@ -264,6 +301,10 @@ const NavMenu: React.FC<{
       
       const fetchData = async () => {
          try {
+            console.log('🔄 [NavMenu] API:', API_BASE_URL);
+            console.log('📋 Institución ID:', INSTITUCION_ID);
+            console.log('🎨 Color ID:', TARGET_COLOR_ID);
+            
             const menu = await getMenuData(INSTITUCION_ID);
             const institucion = await getInstitucionData(INSTITUCION_ID);
             
@@ -272,10 +313,15 @@ const NavMenu: React.FC<{
                
                if (institucion) {
                   setInstitutionData(institucion);
+                  
+                  // ✅ Construir URL de logo inteligente
                   const logo = buildLogoUrl(institucion.institucion_logo);
+                  console.log('🖼️ [NavMenu] Logo URL:', logo);
                   setLogoUrl(logo);
+                  
                   if (onLogoLoaded) onLogoLoaded(logo);
                   
+                  // ✅ Extraer colores institucionales
                   const institutionalColors = extractInstitutionalColors(institucion);
                   if (institutionalColors) {
                      setColors(prev => ({
@@ -287,6 +333,7 @@ const NavMenu: React.FC<{
                         active: isLightColor(backgroundColor) ? institutionalColors.primario : institutionalColors.secundario
                      }));
                      
+                     // Aplicar variables CSS globales
                      const root = document.documentElement;
                      root.style.setProperty('--main-color', institutionalColors.primario);
                      root.style.setProperty('--heading-color', institutionalColors.secundario);
@@ -305,8 +352,8 @@ const NavMenu: React.FC<{
                   });
                }
             }
-         } catch (error) {
-            console.error('❌ [NavMenu] Error:', error);
+         } catch (error: any) {
+            console.error('❌ [NavMenu] Error:', error?.message);
             if (isMounted) {
                setMenuItems(DEFAULT_MENU);
                const text = textColor || getContrastTextColor(backgroundColor);
@@ -346,7 +393,7 @@ const NavMenu: React.FC<{
    };
 
    // =============================================
-   // ESTILOS - VERSIÓN FOOTER (Color Oscuro/Rojo)
+   // ESTILOS VISUALES
    // =============================================
    const isFooter = variant === 'footer';
    

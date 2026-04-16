@@ -3,11 +3,12 @@ import { useEffect, useState, useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
 
+// ✅ Logos locales (assets estáticos - NO vienen del API)
 import footerLogo from "@/assets/img/logo-sociologia.png";
 import footerLog from "@/assets/img/logo-utic-foother.png";
 
 // =============================================
-// INTERFACES (SIN CAMBIOS)
+// INTERFACES
 // =============================================
 interface InstitucionData {
    institucion_id: number;
@@ -52,14 +53,56 @@ interface InstitucionResponse {
 }
 
 // =============================================
-// CONSTANTES (SIN CAMBIOS)
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
 // =============================================
-const INSTITUCION_ID = "35";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
 const MAX_INT32 = 2147483647;
 
 // =============================================
-// UTILIDADES (SIN CAMBIOS)
+// UTILIDADES - Manejo Inteligente de Imágenes y URLs
 // =============================================
+
+/**
+ * Construye URL completa para imágenes
+ * ✅ URL completa (http/https) → Retorna tal cual (MinIO o externo)
+ * ✅ Ruta relativa (/storage/...) → Agrega API_BASE_URL
+ * ✅ UUID/filename → Agrega carpeta según tipo
+ */
+const buildImageUrl = (
+  imagePath: string | null | undefined,
+  type: 'autoridad' | 'logo' | 'portada' | 'evento' | 'curso' | 'convocatoria' | 'gaceta' = 'autoridad'
+): string => {
+  if (!imagePath) return '/images/placeholder-autoridad.png';
+  
+  const cleanPath = imagePath.trim();
+  
+  // ✅ CASO 1: Ya es URL completa (MinIO o externo) → NO modificar
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    return cleanPath;
+  }
+  
+  // ✅ CASO 2: Ruta relativa /storage/... → Agregar API_BASE_URL
+  if (cleanPath.startsWith('/storage/')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+  
+  // ✅ CASO 3: UUID o filename → Construir URL con carpeta según tipo
+  const typeFolders: Record<string, string> = {
+    autoridad: '/storage/imagenes/autoridades/',
+    logo: '/storage/imagenes/logos/',
+    portada: '/storage/imagenes/portadas/',
+    evento: '/storage/imagenes/eventos/',
+    curso: '/storage/imagenes/cursos/',
+    convocatoria: '/storage/imagenes/convocatorias/',
+    gaceta: '/storage/imagenes/gacetas/'
+  };
+  
+  const folder = typeFolders[type] || '/storage/imagenes/';
+  return `${API_BASE_URL}${folder}${cleanPath}`;
+};
+
 const cleanUrl = (url: string | null | undefined): string => {
    if (!url) return "#";
    return url.toString().trim();
@@ -90,26 +133,25 @@ const buildWhatsAppLink = (phone: string): string => {
    return `https://wa.me/591${clean}`;
 };
 
-const buildImageUrl = (fileName: string | null | undefined): string => {
-   if (!fileName) return '#';
-   const cleanName = fileName.trim();
-   if (cleanName.startsWith('http://') || cleanName.startsWith('https://')) {
-      return cleanName;
-   }
-   return `/api/recurso?file=${encodeURIComponent(cleanName)}`;
-};
-
 // =============================================
-// SERVICIO (SIN CAMBIOS)
+// SERVICIO: Obtener datos del footer - CON VARIABLES DE ENTORNO
 // =============================================
 const getInstitucionFooterData = async (institucionId: string) => {
    try {
-      const path = `institucion/${institucionId}/contenido`;
-      const url = `/api/institucion?path=${encodeURIComponent(path)}`;
+      // ✅ URL con variables de entorno - SIN PROXY
+      const url = `${API_BASE_URL}/api/v2/institucion/${institucionId}/contenido`;
+      
+      const headers: HeadersInit = {
+         'Content-Type': 'application/json',
+      };
+      
+      if (API_TOKEN) {
+         headers['Authorization'] = `Bearer ${API_TOKEN}`;
+      }
       
       const response = await fetch(url, {
          method: 'GET',
-         headers: { 'Content-Type': 'application/json' },
+         headers,
          cache: 'no-store'
       });
       
@@ -131,7 +173,7 @@ const getInstitucionFooterData = async (institucionId: string) => {
 };
 
 // =============================================
-// COMPONENTE PRINCIPAL - SOLO INTERFAZ MEJORADA ✨
+// COMPONENTE PRINCIPAL
 // =============================================
 const FooterOne: React.FC = () => {
    
@@ -141,24 +183,22 @@ const FooterOne: React.FC = () => {
    const [error, setError] = useState<string | null>(null);
 
    // =============================================
-   // CARGA DE DATOS (SIN CAMBIOS)
+   // CARGA DE DATOS - API CON VARIABLES DE ENTORNO
    // =============================================
    useEffect(() => {
       let isMounted = true;
       
       const fetchFooterData = async () => {
          try {
-            setLoading(true);
-            setError(null);
-            
-            console.log(`🔄 [Footer] Cargando datos para Sociología (ID: ${INSTITUCION_ID})...`);
+            console.log('🔄 [Footer] API:', API_BASE_URL);
+            console.log('📋 Institución ID:', INSTITUCION_ID);
             
             const response = await getInstitucionFooterData(INSTITUCION_ID);
             
             console.log('📡 [Footer] Respuesta completa:', response);
             
             if (response.status === 404 || response.data?.statusCode === 404) {
-               console.log('ℹ️ [Footer] Sin datos disponibles (404 del nuevo servicio)');
+               console.log('ℹ️ [Footer] Sin datos disponibles (404)');
                if (isMounted) {
                   setInstitucion(null);
                   setAutoridadPrincipal(null);
@@ -168,6 +208,7 @@ const FooterOne: React.FC = () => {
             
             let datos: InstitucionData | null = null;
             
+            // ✅ Cargar autoridad principal si existe
             if (response.data?.autoridad && Array.isArray(response.data.autoridad) && response.data.autoridad.length > 0) {
                const primeraAutoridad = response.data.autoridad[0];
                setAutoridadPrincipal({
@@ -181,6 +222,7 @@ const FooterOne: React.FC = () => {
                console.log('✅ [Footer] Autoridad principal cargada:', primeraAutoridad.nombre_autoridad);
             }
             
+            // ✅ Extraer datos de institución
             if (response.data?.Descripcion && typeof response.data.Descripcion === 'object') {
                datos = response.data.Descripcion as InstitucionData;
             } 
@@ -209,20 +251,15 @@ const FooterOne: React.FC = () => {
             if (isMounted) {
                if (datos) {
                   setInstitucion(datos);
-                  console.log('✅ [Footer] Datos de contacto cargados exitosamente');
+                  console.log('✅ [Footer] Datos de contacto cargados');
                } else {
-                  console.warn('⚠️ [Footer] No se encontraron datos válidos en la respuesta');
+                  console.warn('⚠️ [Footer] No se encontraron datos válidos');
                   setInstitucion(null);
                }
             }
             
          } catch (err: any) {
-            console.error("❌ [Footer] Error cargando institución:", {
-               message: err?.message,
-               name: err?.name,
-               status: err?.status
-            });
-            
+            console.error("❌ [Footer] Error cargando institución:", err?.message);
             if (isMounted) {
                setInstitucion(null);
                setAutoridadPrincipal(null);
@@ -241,7 +278,7 @@ const FooterOne: React.FC = () => {
    }, []);
 
    // =============================================
-   // PREPARAR DATOS (SIN CAMBIOS)
+   // PREPARAR DATOS DE CONTACTO
    // =============================================
    const contactData = useMemo(() => {
       if (!institucion) {
@@ -285,7 +322,7 @@ const FooterOne: React.FC = () => {
    }, [institucion]);
 
    // =============================================
-   // ESTILOS VISUALES - COLORES INSTITUCIONALES 🎨
+   // ESTILOS VISUALES
    // =============================================
    const footerStyles = {
       container: {
@@ -433,7 +470,7 @@ const FooterOne: React.FC = () => {
    };
 
    // =============================================
-   // RENDERIZADO - INTERFAZ MEJORADA ✨
+   // RENDERIZADO
    // =============================================
    return (
       <footer className="footer-area" style={footerStyles.container}>
@@ -584,16 +621,19 @@ const FooterOne: React.FC = () => {
                               <div style={{display: 'flex', alignItems: 'center', gap: '16px'}}>
                                  {autoridadPrincipal.foto_autoridad && (
                                     <Image
-                                       src={buildImageUrl(autoridadPrincipal.foto_autoridad)}
+                                       // ✅ Construir URL de imagen inteligente
+                                       src={buildImageUrl(autoridadPrincipal.foto_autoridad, 'autoridad')}
                                        alt={autoridadPrincipal.nombre_autoridad}
                                        width={56}
                                        height={56}
                                        style={footerStyles.autoridadImage}
+                                       // ✅ No optimizar si es URL externa (MinIO)
                                        unoptimized={autoridadPrincipal.foto_autoridad.startsWith('http')}
                                        onError={(e) => {
                                           const target = e.target as HTMLImageElement;
                                           target.src = '/images/placeholder-autoridad.png';
                                        }}
+                                       loading="lazy"
                                     />
                                  )}
                                  <div>

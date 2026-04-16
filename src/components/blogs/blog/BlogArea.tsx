@@ -1,7 +1,15 @@
 "use client";
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image'; // ✅ IMPORTANTE: Agregar Image de Next.js
 import { CSSProperties } from 'react';
+
+// =============================================
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
+// =============================================
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
 
 // =============================================
 // INTERFACES
@@ -51,21 +59,45 @@ interface Gaceta {
 }
 
 // =============================================
-// CONSTANTES - SOLO ID 35 (SOCIOLOGÍA)
+// UTILIDADES - Manejo Inteligente de Imágenes
 // =============================================
-const API_BASE_URL = 'https://apiadministrador.upea.bo';
-const API_TOKEN = '130143e7a5de4f3524cae21a8f333b85e82a9ac037f111d9d1fbad23edecccc1';
-const INSTITUCION_ID = "35"; // ✅ SOLO SOCIOLOGÍA
 
-// =============================================
-// UTILIDADES
-// =============================================
-const buildImageUrl = (fileName: string | null | undefined): string => {
-   if (!fileName) return '/images/placeholder-event.jpg';
-   const cleanName = fileName.trim();
-   if (cleanName.startsWith('http')) return cleanName;
-   if (cleanName.startsWith('/storage/')) return `${API_BASE_URL}${cleanName}`;
-   return `${API_BASE_URL}${cleanName}`;
+/**
+ * Construye URL completa para imágenes
+ * ✅ URL completa (http/https) → Retorna tal cual (MinIO)
+ * ✅ Ruta relativa (/storage/...) → Agrega API_BASE_URL
+ * ✅ UUID/filename → Agrega carpeta según tipo
+ */
+const buildImageUrl = (
+  imagePath: string | null | undefined,
+  type: 'convocatoria' | 'evento' | 'curso' | 'gaceta' | 'autoridad' | 'portada' = 'convocatoria'
+): string => {
+  if (!imagePath) return '/images/placeholder.jpg';
+  
+  const cleanPath = imagePath.trim();
+  
+  // ✅ CASO 1: Ya es URL completa (MinIO o externo) → NO modificar
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    return cleanPath;
+  }
+  
+  // ✅ CASO 2: Ruta relativa /storage/... → Agregar API_BASE_URL
+  if (cleanPath.startsWith('/storage/')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+  
+  // ✅ CASO 3: UUID o filename → Construir URL con carpeta según tipo
+  const typeFolders: Record<string, string> = {
+    convocatoria: '/storage/imagenes/convocatorias/',
+    evento: '/storage/imagenes/eventos/',
+    curso: '/storage/imagenes/cursos/',
+    gaceta: '/storage/imagenes/gacetas/',
+    autoridad: '/storage/imagenes/autoridades/',
+    portada: '/storage/imagenes/portadas/'
+  };
+  
+  const folder = typeFolders[type] || '/storage/imagenes/';
+  return `${API_BASE_URL}${folder}${cleanPath}`;
 };
 
 const formatDate = (dateString: string): string => {
@@ -79,7 +111,7 @@ const formatDate = (dateString: string): string => {
 };
 
 // =============================================
-// COMPONENTE PRINCIPAL - SOLO ID 35 ✨
+// COMPONENTE PRINCIPAL
 // =============================================
 const BlogArea: React.FC = () => {
    const [convocatorias, setConvocatorias] = useState<Convocatoria[]>([]);
@@ -94,13 +126,20 @@ const BlogArea: React.FC = () => {
          try {
             setLoading(true);
             setError(null);
-            console.log(`🔄 [BlogArea] Cargando desde ID ${INSTITUCION_ID} (Sociología)...`);
+            console.log(`🔄 [BlogArea] Cargando desde API: ${API_BASE_URL}`);
+            console.log(`📋 Institución ID: ${INSTITUCION_ID}`);
             
-            const url = `${API_BASE_URL}/api/v2/institucion/${INSTITUCION_ID}/gacetaEventos`;
-            const headers: HeadersInit = { 'Content-Type': 'application/json' };
-            if (API_TOKEN) headers['Authorization'] = `Bearer ${API_TOKEN}`;
-            
-            const response = await fetch(url, { method: 'GET', headers, cache: 'no-store' });
+            const response = await fetch(
+               `${API_BASE_URL}/api/v2/institucion/${INSTITUCION_ID}/gacetaEventos`,
+               { 
+                  method: 'GET', 
+                  headers: { 
+                     'Content-Type': 'application/json',
+                     'Authorization': `Bearer ${API_TOKEN}`
+                  }, 
+                  cache: 'no-store' 
+               }
+            );
             
             if (response.ok) {
                const data = await response.json();
@@ -123,7 +162,7 @@ const BlogArea: React.FC = () => {
             setLoading(false);
          } catch (error) {
             console.error('❌ Error cargando datos:', error);
-            setError('Error de conexión');
+            setError('Error de conexión con el servidor');
             setLoading(false);
          }
       };
@@ -132,7 +171,7 @@ const BlogArea: React.FC = () => {
    }, []);
 
    // =============================================
-   // ESTILOS VISUALES - FONDO OSCURO INSTITUCIONAL 🎨
+   // ESTILOS VISUALES
    // =============================================
    const blogStyles = {
       section: {
@@ -200,7 +239,7 @@ const BlogArea: React.FC = () => {
          borderRadius: '20px',
          boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
          border: '2px solid rgba(250,178,101,0.2)',
-         overflow: 'hidden',
+         overflow: 'hidden' as const,
          transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
          backdropFilter: 'blur(10px)',
          height: '100%',
@@ -343,7 +382,7 @@ const BlogArea: React.FC = () => {
                   Cargando Convocatorias
                </h3>
                <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '1.1rem' }}>
-                  Obteniendo datos de Sociología...
+                  Conectando con: {API_BASE_URL}
                </p>
             </div>
          </section>
@@ -367,6 +406,9 @@ const BlogArea: React.FC = () => {
                            ⚠️ Error al Cargar
                         </h3>
                         <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '1.05rem', marginBottom: '24px' }}>{error}</p>
+                        <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.9rem' }}>
+                           API: {API_BASE_URL} | Institución: {INSTITUCION_ID}
+                        </p>
                         <button 
                            onClick={() => window.location.reload()}
                            style={{
@@ -406,15 +448,11 @@ const BlogArea: React.FC = () => {
 
    return (
       <section className="blog-area pd-top-120 pd-bottom-90" style={blogStyles.section}>
-         {/* Elemento decorativo de fondo */}
          <div style={blogStyles.decorativeBg} />
          
          <div className="container" style={{ position: 'relative', zIndex: 1 }}>
-            
-            {/* Header de Sección */}
             <div className="row justify-content-center mb-5" style={blogStyles.header}>
                <div className="col-lg-8 text-center">
-                  
                   <h2 className="title" style={blogStyles.sectionTitle}>
                      CONVOCATORIAS Y EVENTOS
                      <span style={blogStyles.titleLine} />
@@ -425,11 +463,7 @@ const BlogArea: React.FC = () => {
                      ÚLTIMAS PUBLICACIONES
                   </h6>
                   
-                  <p style={blogStyles.sectionDescription}>
-                     <i className="fa fa-graduation-cap me-2"></i>
-                     Fuente: Sociología (ID {INSTITUCION_ID})
-                  </p>
-                  
+               
                </div>
             </div>
 
@@ -462,67 +496,87 @@ const BlogArea: React.FC = () => {
                            Convocatorias ({convocatorias.length})
                         </h3>
                         <div className="row g-4">
-                           {convocatorias.map((convocatoria) => (
-                              <div key={convocatoria.idconvocatorias} className="col-lg-4 col-md-6">
-                                 <article 
-                                    style={blogStyles.card}
-                                    onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, blogStyles.cardHover)}
-                                    onMouseLeave={(e: any) => {
-                                       Object.assign(e.currentTarget.style, {
-                                          transform: 'translateY(0)',
-                                          boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-                                          borderColor: 'rgba(250,178,101,0.2)',
-                                          background: 'rgba(255,255,255,0.08)'
-                                       });
-                                    }}
-                                 >
-                                    <div style={blogStyles.imageWrapper}>
-                                       <img
-                                          src={buildImageUrl(convocatoria.con_foto_portada)}
-                                          alt={convocatoria.con_titulo}
-                                          style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.4s ease' }}
-                                          onMouseEnter={(e: any) => e.currentTarget.style.transform = 'scale(1.1)'}
-                                          onMouseLeave={(e: any) => e.currentTarget.style.transform = 'scale(1)'}
-                                       />
-                                       {convocatoria.tipo_conv_comun && (
-                                          <span style={blogStyles.badge}>
-                                             {convocatoria.tipo_conv_comun.tipo_conv_comun_titulo}
-                                          </span>
-                                       )}
-                                    </div>
-                                    <div style={blogStyles.content}>
-                                       <h5 style={blogStyles.title}>{convocatoria.con_titulo}</h5>
-                                       {convocatoria.con_descripcion && (
-                                          <div style={blogStyles.description}
-                                             dangerouslySetInnerHTML={{ 
-                                                __html: convocatoria.con_descripcion.replace(/<[^>]*>/g, '').substring(0, 120) + '...' 
+                           {convocatorias.map((convocatoria) => {
+                              // ✅ Construir URL de imagen inteligente
+                              const imageUrl = buildImageUrl(convocatoria.con_foto_portada, 'convocatoria');
+                              const isExternalImage = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+                              
+                              return (
+                                 <div key={convocatoria.idconvocatorias} className="col-lg-4 col-md-6">
+                                    <article 
+                                       style={blogStyles.card}
+                                       onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, blogStyles.cardHover)}
+                                       onMouseLeave={(e: any) => {
+                                          Object.assign(e.currentTarget.style, {
+                                             transform: 'translateY(0)',
+                                             boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+                                             borderColor: 'rgba(250,178,101,0.2)',
+                                             background: 'rgba(255,255,255,0.08)'
+                                          });
+                                       }}
+                                    >
+                                       <div style={blogStyles.imageWrapper}>
+                                          {/* ✅ REEMPLAZADO: <img> → <Image /> de Next.js */}
+                                          <Image
+                                             src={imageUrl}
+                                             alt={convocatoria.con_titulo}
+                                             width={500}
+                                             height={300}
+                                             style={{ 
+                                                width: '100%', 
+                                                height: '100%', 
+                                                objectFit: 'cover',
+                                                transition: 'transform 0.4s ease' 
                                              }}
+                                             // ✅ No optimizar si es URL externa (MinIO)
+                                             unoptimized={isExternalImage}
+                                             // ✅ Fallback si la imagen falla
+                                             onError={(e) => {
+                                                const target = e.target as HTMLImageElement;
+                                                target.src = '/images/placeholder.jpg';
+                                             }}
+                                             loading="lazy"
                                           />
-                                       )}
-                                       {convocatoria.con_fecha_inicio && (
-                                          <div style={blogStyles.infoBox}>
-                                             <i className="fa fa-calendar" style={{ color: '#FAB265' }}></i>
-                                             <strong>Inicio:</strong> {formatDate(convocatoria.con_fecha_inicio)}
-                                          </div>
-                                       )}
-                                       {convocatoria.con_fecha_fin && (
-                                          <div style={blogStyles.infoBox}>
-                                             <i className="fa fa-calendar-check-o" style={{ color: '#28a745' }}></i>
-                                             <strong>Fin:</strong> {formatDate(convocatoria.con_fecha_fin)}
-                                          </div>
-                                       )}
-                                       <Link 
-                                          href={`/event-details/${convocatoria.idconvocatorias}`}
-                                          style={blogStyles.button}
-                                          onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, blogStyles.buttonHover)}
-                                          onMouseLeave={(e: any) => Object.assign(e.currentTarget.style, blogStyles.button)}
-                                       >
-                                          Ver más <i className="fa fa-arrow-right"></i>
-                                       </Link>
-                                    </div>
-                                 </article>
-                              </div>
-                           ))}
+                                          {convocatoria.tipo_conv_comun && (
+                                             <span style={blogStyles.badge}>
+                                                {convocatoria.tipo_conv_comun.tipo_conv_comun_titulo}
+                                             </span>
+                                          )}
+                                       </div>
+                                       <div style={blogStyles.content}>
+                                          <h5 style={blogStyles.title}>{convocatoria.con_titulo}</h5>
+                                          {convocatoria.con_descripcion && (
+                                             <div style={blogStyles.description}
+                                                dangerouslySetInnerHTML={{ 
+                                                   __html: convocatoria.con_descripcion.replace(/<[^>]*>/g, '').substring(0, 120) + '...' 
+                                                }}
+                                             />
+                                          )}
+                                          {convocatoria.con_fecha_inicio && (
+                                             <div style={blogStyles.infoBox}>
+                                                <i className="fa fa-calendar" style={{ color: '#FAB265' }}></i>
+                                                <strong>Inicio:</strong> {formatDate(convocatoria.con_fecha_inicio)}
+                                             </div>
+                                          )}
+                                          {convocatoria.con_fecha_fin && (
+                                             <div style={blogStyles.infoBox}>
+                                                <i className="fa fa-calendar-check-o" style={{ color: '#28a745' }}></i>
+                                                <strong>Fin:</strong> {formatDate(convocatoria.con_fecha_fin)}
+                                             </div>
+                                          )}
+                                          <Link 
+                                             href={`/event-details/${convocatoria.idconvocatorias}`}
+                                             style={blogStyles.button}
+                                             onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, blogStyles.buttonHover)}
+                                             onMouseLeave={(e: any) => Object.assign(e.currentTarget.style, blogStyles.button)}
+                                          >
+                                             Ver más <i className="fa fa-arrow-right"></i>
+                                          </Link>
+                                       </div>
+                                    </article>
+                                 </div>
+                              );
+                           })}
                         </div>
                      </div>
                   )}
@@ -535,82 +589,102 @@ const BlogArea: React.FC = () => {
                            Eventos ({eventos.length})
                         </h3>
                         <div className="row g-4">
-                           {eventos.map((evento) => (
-                              <div key={evento.evento_id} className="col-lg-4 col-md-6">
-                                 <article 
-                                    style={blogStyles.card}
-                                    onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, blogStyles.cardHover)}
-                                    onMouseLeave={(e: any) => {
-                                       Object.assign(e.currentTarget.style, {
-                                          transform: 'translateY(0)',
-                                          boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-                                          borderColor: 'rgba(250,178,101,0.2)',
-                                          background: 'rgba(255,255,255,0.08)'
-                                       });
-                                    }}
-                                 >
-                                    <div style={blogStyles.imageWrapper}>
-                                       <img
-                                          src={buildImageUrl(evento.evento_imagen)}
-                                          alt={evento.evento_titulo}
-                                          style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.4s ease' }}
-                                          onMouseEnter={(e: any) => e.currentTarget.style.transform = 'scale(1.1)'}
-                                          onMouseLeave={(e: any) => e.currentTarget.style.transform = 'scale(1)'}
-                                       />
-                                       <span style={blogStyles.badge}>Evento</span>
-                                    </div>
-                                    <div style={blogStyles.content}>
-                                       <h5 style={blogStyles.title}>{evento.evento_titulo}</h5>
-                                       {evento.evento_descripcion && (
-                                          <div style={blogStyles.description}
-                                             dangerouslySetInnerHTML={{ 
-                                                __html: evento.evento_descripcion.replace(/<[^>]*>/g, '').substring(0, 120) + '...' 
+                           {eventos.map((evento) => {
+                              // ✅ Construir URL de imagen inteligente
+                              const imageUrl = buildImageUrl(evento.evento_imagen, 'evento');
+                              const isExternalImage = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+                              
+                              return (
+                                 <div key={evento.evento_id} className="col-lg-4 col-md-6">
+                                    <article 
+                                       style={blogStyles.card}
+                                       onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, blogStyles.cardHover)}
+                                       onMouseLeave={(e: any) => {
+                                          Object.assign(e.currentTarget.style, {
+                                             transform: 'translateY(0)',
+                                             boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+                                             borderColor: 'rgba(250,178,101,0.2)',
+                                             background: 'rgba(255,255,255,0.08)'
+                                          });
+                                       }}
+                                    >
+                                       <div style={blogStyles.imageWrapper}>
+                                          {/* ✅ REEMPLAZADO: <img> → <Image /> de Next.js */}
+                                          <Image
+                                             src={imageUrl}
+                                             alt={evento.evento_titulo}
+                                             width={500}
+                                             height={300}
+                                             style={{ 
+                                                width: '100%', 
+                                                height: '100%', 
+                                                objectFit: 'cover',
+                                                transition: 'transform 0.4s ease' 
                                              }}
+                                             // ✅ No optimizar si es URL externa (MinIO)
+                                             unoptimized={isExternalImage}
+                                             // ✅ Fallback si la imagen falla
+                                             onError={(e) => {
+                                                const target = e.target as HTMLImageElement;
+                                                target.src = '/images/placeholder.jpg';
+                                             }}
+                                             loading="lazy"
                                           />
-                                       )}
-                                       <div style={blogStyles.infoBox}>
-                                          <i className="fa fa-calendar" style={{ color: '#FAB265' }}></i>
-                                          <strong>Fecha:</strong> {evento.evento_fecha}
+                                          <span style={blogStyles.badge}>Evento</span>
                                        </div>
-                                       {evento.evento_hora && (
+                                       <div style={blogStyles.content}>
+                                          <h5 style={blogStyles.title}>{evento.evento_titulo}</h5>
+                                          {evento.evento_descripcion && (
+                                             <div style={blogStyles.description}
+                                                dangerouslySetInnerHTML={{ 
+                                                   __html: evento.evento_descripcion.replace(/<[^>]*>/g, '').substring(0, 120) + '...' 
+                                                }}
+                                             />
+                                          )}
                                           <div style={blogStyles.infoBox}>
-                                             <i className="fa fa-clock-o" style={{ color: '#17a2b8' }}></i>
-                                             <strong>Hora:</strong> {evento.evento_hora}
+                                             <i className="fa fa-calendar" style={{ color: '#FAB265' }}></i>
+                                             <strong>Fecha:</strong> {evento.evento_fecha}
                                           </div>
-                                       )}
-                                       {evento.evento_lugar && (
-                                          <div style={blogStyles.infoBox}>
-                                             <i className="fa fa-map-marker" style={{ color: '#dc3545' }}></i>
-                                             <strong>Lugar:</strong> {evento.evento_lugar}
-                                          </div>
-                                       )}
-                                       <Link 
-                                          href={`/event-details/${evento.evento_id}`}
-                                          style={{...blogStyles.button, background: 'transparent', borderColor: '#FAB265', color: '#FAB265'}}
-                                          onMouseEnter={(e: any) => {
-                                             Object.assign(e.currentTarget.style, {
-                                                background: 'linear-gradient(135deg, #FAB265, #FFD700)',
-                                                color: '#050504',
-                                                transform: 'translateY(-2px)',
-                                                boxShadow: '0 8px 20px rgba(250,178,101,0.5)'
-                                             });
-                                          }}
-                                          onMouseLeave={(e: any) => {
-                                             Object.assign(e.currentTarget.style, {
-                                                background: 'transparent',
-                                                borderColor: '#FAB265',
-                                                color: '#FAB265',
-                                                transform: 'translateY(0)',
-                                                boxShadow: '0 4px 12px rgba(253, 28, 10, 0.4)'
-                                             });
-                                          }}
-                                       >
-                                          Ver más <i className="fa fa-arrow-right"></i>
-                                       </Link>
-                                    </div>
-                                 </article>
-                              </div>
-                           ))}
+                                          {evento.evento_hora && (
+                                             <div style={blogStyles.infoBox}>
+                                                <i className="fa fa-clock-o" style={{ color: '#17a2b8' }}></i>
+                                                <strong>Hora:</strong> {evento.evento_hora}
+                                             </div>
+                                          )}
+                                          {evento.evento_lugar && (
+                                             <div style={blogStyles.infoBox}>
+                                                <i className="fa fa-map-marker" style={{ color: '#dc3545' }}></i>
+                                                <strong>Lugar:</strong> {evento.evento_lugar}
+                                             </div>
+                                          )}
+                                          <Link 
+                                             href={`/event-details/${evento.evento_id}`}
+                                             style={{...blogStyles.button, background: 'transparent', borderColor: '#FAB265', color: '#FAB265'}}
+                                             onMouseEnter={(e: any) => {
+                                                Object.assign(e.currentTarget.style, {
+                                                   background: 'linear-gradient(135deg, #FAB265, #FFD700)',
+                                                   color: '#050504',
+                                                   transform: 'translateY(-2px)',
+                                                   boxShadow: '0 8px 20px rgba(250,178,101,0.5)'
+                                                });
+                                             }}
+                                             onMouseLeave={(e: any) => {
+                                                Object.assign(e.currentTarget.style, {
+                                                   background: 'transparent',
+                                                   borderColor: '#FAB265',
+                                                   color: '#FAB265',
+                                                   transform: 'translateY(0)',
+                                                   boxShadow: '0 4px 12px rgba(253, 28, 10, 0.4)'
+                                                });
+                                             }}
+                                          >
+                                             Ver más <i className="fa fa-arrow-right"></i>
+                                          </Link>
+                                       </div>
+                                    </article>
+                                 </div>
+                              );
+                           })}
                         </div>
                      </div>
                   )}
@@ -623,66 +697,86 @@ const BlogArea: React.FC = () => {
                            Cursos ({cursos.length})
                         </h3>
                         <div className="row g-4">
-                           {cursos.map((curso) => (
-                              <div key={curso.iddetalle_cursos_academicos} className="col-lg-4 col-md-6">
-                                 <article 
-                                    style={blogStyles.card}
-                                    onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, blogStyles.cardHover)}
-                                    onMouseLeave={(e: any) => {
-                                       Object.assign(e.currentTarget.style, {
-                                          transform: 'translateY(0)',
-                                          boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-                                          borderColor: 'rgba(250,178,101,0.2)',
-                                          background: 'rgba(255,255,255,0.08)'
-                                       });
-                                    }}
-                                 >
-                                    <div style={blogStyles.imageWrapper}>
-                                       <img
-                                          src={buildImageUrl(curso.det_img_portada)}
-                                          alt={curso.det_titulo}
-                                          style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.4s ease' }}
-                                          onMouseEnter={(e: any) => e.currentTarget.style.transform = 'scale(1.1)'}
-                                          onMouseLeave={(e: any) => e.currentTarget.style.transform = 'scale(1)'}
-                                       />
-                                       {curso.tipo_curso_otro && (
-                                          <span style={blogStyles.badge}>
-                                             {curso.tipo_curso_otro.tipo_conv_curso_nombre}
-                                          </span>
-                                       )}
-                                    </div>
-                                    <div style={blogStyles.content}>
-                                       <h5 style={blogStyles.title}>{curso.det_titulo}</h5>
-                                       {curso.det_descripcion && (
-                                          <div style={blogStyles.description}
-                                             dangerouslySetInnerHTML={{ 
-                                                __html: curso.det_descripcion.replace(/<[^>]*>/g, '').substring(0, 120) + '...' 
+                           {cursos.map((curso) => {
+                              // ✅ Construir URL de imagen inteligente
+                              const imageUrl = buildImageUrl(curso.det_img_portada, 'curso');
+                              const isExternalImage = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+                              
+                              return (
+                                 <div key={curso.iddetalle_cursos_academicos} className="col-lg-4 col-md-6">
+                                    <article 
+                                       style={blogStyles.card}
+                                       onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, blogStyles.cardHover)}
+                                       onMouseLeave={(e: any) => {
+                                          Object.assign(e.currentTarget.style, {
+                                             transform: 'translateY(0)',
+                                             boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+                                             borderColor: 'rgba(250,178,101,0.2)',
+                                             background: 'rgba(255,255,255,0.08)'
+                                          });
+                                       }}
+                                    >
+                                       <div style={blogStyles.imageWrapper}>
+                                          {/* ✅ REEMPLAZADO: <img> → <Image /> de Next.js */}
+                                          <Image
+                                             src={imageUrl}
+                                             alt={curso.det_titulo}
+                                             width={500}
+                                             height={300}
+                                             style={{ 
+                                                width: '100%', 
+                                                height: '100%', 
+                                                objectFit: 'cover',
+                                                transition: 'transform 0.4s ease' 
                                              }}
+                                             // ✅ No optimizar si es URL externa (MinIO)
+                                             unoptimized={isExternalImage}
+                                             // ✅ Fallback si la imagen falla
+                                             onError={(e) => {
+                                                const target = e.target as HTMLImageElement;
+                                                target.src = '/images/placeholder.jpg';
+                                             }}
+                                             loading="lazy"
                                           />
-                                       )}
-                                       {curso.det_modalidad && (
-                                          <div style={blogStyles.infoBox}>
-                                             <i className="fa fa-laptop" style={{ color: '#FAB265' }}></i>
-                                             <strong>Modalidad:</strong> {curso.det_modalidad}
-                                          </div>
-                                       )}
-                                       <Link 
-                                          href={`/course-details/${curso.iddetalle_cursos_academicos}`}
-                                          style={blogStyles.button}
-                                          onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, blogStyles.buttonHover)}
-                                          onMouseLeave={(e: any) => Object.assign(e.currentTarget.style, blogStyles.button)}
-                                       >
-                                          Ver más <i className="fa fa-arrow-right"></i>
-                                       </Link>
-                                    </div>
-                                 </article>
-                              </div>
-                           ))}
+                                          {curso.tipo_curso_otro && (
+                                             <span style={blogStyles.badge}>
+                                                {curso.tipo_curso_otro.tipo_conv_curso_nombre}
+                                             </span>
+                                          )}
+                                       </div>
+                                       <div style={blogStyles.content}>
+                                          <h5 style={blogStyles.title}>{curso.det_titulo}</h5>
+                                          {curso.det_descripcion && (
+                                             <div style={blogStyles.description}
+                                                dangerouslySetInnerHTML={{ 
+                                                   __html: curso.det_descripcion.replace(/<[^>]*>/g, '').substring(0, 120) + '...' 
+                                                }}
+                                             />
+                                          )}
+                                          {curso.det_modalidad && (
+                                             <div style={blogStyles.infoBox}>
+                                                <i className="fa fa-laptop" style={{ color: '#FAB265' }}></i>
+                                                <strong>Modalidad:</strong> {curso.det_modalidad}
+                                             </div>
+                                          )}
+                                          <Link 
+                                             href={`/course-details/${curso.iddetalle_cursos_academicos}`}
+                                             style={blogStyles.button}
+                                             onMouseEnter={(e: any) => Object.assign(e.currentTarget.style, blogStyles.buttonHover)}
+                                             onMouseLeave={(e: any) => Object.assign(e.currentTarget.style, blogStyles.button)}
+                                          >
+                                             Ver más <i className="fa fa-arrow-right"></i>
+                                          </Link>
+                                       </div>
+                                    </article>
+                                 </div>
+                              );
+                           })}
                         </div>
                      </div>
                   )}
 
-                  {/* GACETAS UNIVERSITARIAS */}
+                  {/* GACETAS */}
                   {gacetas.length > 0 && (
                      <div className="mb-5">
                         <h3 style={{...blogStyles.sectionHeader, color: '#FAB265', borderBottomColor: 'rgba(250,178,101,0.4)'}}>
@@ -717,7 +811,7 @@ const BlogArea: React.FC = () => {
                                           </div>
                                        )}
                                        <a
-                                          href={buildImageUrl(gaceta.gaceta_documento)}
+                                          href={buildImageUrl(gaceta.gaceta_documento, 'gaceta')}
                                           target="_blank"
                                           rel="noopener noreferrer"
                                           style={blogStyles.button}
@@ -737,7 +831,6 @@ const BlogArea: React.FC = () => {
             )}
          </div>
          
-         {/* CSS Global para animaciones */}
          <style jsx global>{`
             @keyframes spin {
                from { transform: rotate(0deg); }

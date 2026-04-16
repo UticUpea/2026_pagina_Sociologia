@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 
 // =============================================
@@ -23,7 +23,6 @@ interface InstitucionData {
    institucion_celular1: number | string;
    institucion_correo1: string;
    colorinstitucion?: ColorInstitucion[];
-   // Propiedades alternativas
    id?: number;
    nombre?: string;
    facebook?: string;
@@ -35,119 +34,73 @@ interface InstitucionData {
    correo?: string;
 }
 
-interface InstitucionResponse {
-   Descripcion?: InstitucionData;
-   [key: string]: any;
-}
+// =============================================
+// CONFIGURACIÓN - SOLO DESDE .env (SIN HARDCODEAR)
+// =============================================
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL!;
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN!;
+const INSTITUCION_ID = process.env.NEXT_PUBLIC_INSTITUCION_ID!;
+const TARGET_COLOR_ID = process.env.NEXT_PUBLIC_COLOR_ID 
+   ? parseInt(process.env.NEXT_PUBLIC_COLOR_ID, 10) 
+   : 32;
 
 // =============================================
-// CONSTANTES - ID DE INSTITUCIÓN (NUEVO SERVIDOR)
-// =============================================
-const INSTITUCION_ID = "35"; // Sociología
-const TARGET_COLOR_ID = 32;   // ✅ NUEVO: ID del esquema de colores a consumir
-
-// =============================================
-// UTILIDADES DE LIMPIEZA Y FORMATO
+// UTILIDADES
 // =============================================
 
-/**
- * Limpia URLs eliminando espacios en blanco
- */
 const cleanUrl = (url: string | null | undefined): string => {
    if (!url) return "#";
    return url.toString().trim();
 };
 
-/**
- * Calcula si un color es claro u oscuro para determinar contraste
- * @param hex - Color en formato hex (#RRGGBB)
- * @returns true si el color es claro, false si es oscuro
- */
 const isLightColor = (hex: string): boolean => {
    try {
-      // Remover # si existe
       const clean = hex.replace('#', '');
-      // Convertir a RGB
       const r = parseInt(clean.substring(0, 2), 16);
       const g = parseInt(clean.substring(2, 4), 16);
       const b = parseInt(clean.substring(4, 6), 16);
-      // Fórmula de luminosidad percibida
       const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
       return luminance > 0.5;
    } catch {
-      return false; // Por defecto, asumir oscuro
+      return false;
    }
 };
 
-/**
- * Obtiene color de texto con alto contraste para un color de fondo dado
- * @param bgColor - Color de fondo en hex
- * @returns Color de texto: '#000000' para fondos claros, '#FFFFFF' para oscuros
- */
 const getContrastTextColor = (bgColor: string): string => {
    return isLightColor(bgColor) ? '#000000' : '#FFFFFF';
 };
 
-// =============================================
-// 🎨 NUEVO: Extraer colores institucionales buscando id_color: 32
-// =============================================
 const extractInstitutionalColors = (apiResponse: any) => {
    try {
-      // Acceso seguro a la estructura de la API
       const descripcion = apiResponse?.Descripcion || apiResponse?.data || apiResponse;
-      
-      // ✅ Buscar esquema de colores por TARGET_COLOR_ID (32) o usar el primero disponible
       const colorScheme = descripcion?.colorinstitucion?.find(
          (c: ColorInstitucion) => c.id_color === TARGET_COLOR_ID
       ) || descripcion?.colorinstitucion?.[0];
       
-      if (!colorScheme) {
-         console.warn('⚠️ No se encontraron colores institucionales en la API');
-         return null;
-      }
+      if (!colorScheme) return null;
       
-      // Retornar colores limpios (sin espacios) y validados
       return {
          id_color: colorScheme.id_color || TARGET_COLOR_ID,
          primario: (colorScheme.color_primario || '#FD1C0A').trim(),
          secundario: (colorScheme.color_secundario || '#FAB265').trim(),
          terciario: (colorScheme.color_terciario || '#050504').trim()
       };
-      
    } catch (error) {
-      console.error('❌ Error extrayendo colores institucionales:', error);
+      console.error('❌ Error extrayendo colores:', error);
       return null;
    }
 };
 
-// =============================================
-// SERVICIO: Obtener datos de institución para header
-// =============================================
 const getInstitucionHeaderData = async (institucionId: string) => {
    try {
-      const response = await fetch(
-         `/api/institucion?path=institucionesPrincipal/${institucionId}`,
-         {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
-            cache: 'no-store'
-         }
-      );
+      const url = `${API_BASE_URL}/api/v2/institucionesPrincipal/${institucionId}`;
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (API_TOKEN) headers['Authorization'] = `Bearer ${API_TOKEN}`;
       
+      const response = await fetch(url, { method: 'GET', headers, cache: 'no-store' });
       const data = await response.json();
       
-      console.log('[Service] Respuesta header:', {
-         status: response.status,
-         ok: response.ok,
-         hasData: !!data
-      });
-      
-      return {
-         data,
-         status: response.status,
-         ok: response.ok
-      };
-      
+      return { data, status: response.status, ok: response.ok };
    } catch (error) {
       console.error('[Service] Error fetching header:', error);
       throw error;
@@ -158,7 +111,6 @@ const getInstitucionHeaderData = async (institucionId: string) => {
 // COMPONENTE PRINCIPAL
 // =============================================
 const HeaderTopOne: React.FC = () => {
-   
    const [institucion, setInstitucion] = useState<InstitucionData | null>(null);
    const [loading, setLoading] = useState<boolean>(true);
    const [colors, setColors] = useState<{
@@ -168,104 +120,15 @@ const HeaderTopOne: React.FC = () => {
       textOnPrimario: string;
       textOnSecundario: string;
    }>({
-      primario: '#FD1C0A',      // Rojo UPEA por defecto
-      secundario: '#050504',    // Negro por defecto
-      terciario: '#FAB265',     // Naranja por defecto
-      textOnPrimario: '#FFFFFF', // Blanco sobre rojo (oscuro)
-      textOnSecundario: '#FFFFFF' // Blanco sobre negro
+      primario: '#FD1C0A',
+      secundario: '#050504',
+      terciario: '#FAB265',
+      textOnPrimario: '#FFFFFF',
+      textOnSecundario: '#FFFFFF'
    });
 
-   // =============================================
-   // CARGA DE DATOS - NUEVO SERVICIO API V2
-   // =============================================
-   useEffect(() => {
-      let isMounted = true;
-      
-      const fetchHeaderData = async () => {
-         try {
-            setLoading(true);
-            
-            console.log(`🔄 [HeaderTop] Cargando datos para Sociología (ID: ${INSTITUCION_ID})...`);
-            
-            const response = await getInstitucionHeaderData(INSTITUCION_ID);
-            
-            console.log('📡 [HeaderTop] Respuesta completa:', response);
-            
-            // Manejar 404 como estado vacío (no error crítico)
-            if (response.status === 404 || response.data?.statusCode === 404) {
-               console.log('ℹ️ [HeaderTop] Sin datos disponibles (404 esperado)');
-               if (isMounted) {
-                  setInstitucion(null);
-                  applyDefaultColors();
-               }
-               return;
-            }
-            
-            // Extraer datos de la respuesta
-            let datos: InstitucionData | null = null;
-            if (response.data?.Descripcion && typeof response.data.Descripcion === 'object') {
-               datos = response.data.Descripcion as InstitucionData;
-            } else if (response.data?.institucion_id) {
-               datos = response.data as InstitucionData;
-            }
-            
-            if (isMounted) {
-               if (datos) {
-                  setInstitucion(datos);
-                  
-                  // ✅ MODIFICADO: Extraer colores institucionales buscando id_color: 32
-                  const extractedColors = extractInstitutionalColors(response.data);
-                  
-                  if (extractedColors) {
-                     // ✅ Calcular colores de texto con CONTRASTE ALTO para visibilidad
-                     const textOnPrimario = getContrastTextColor(extractedColors.primario);
-                     const textOnSecundario = getContrastTextColor(extractedColors.secundario);
-                     
-                     setColors({
-                        primario: extractedColors.primario,
-                        secundario: extractedColors.secundario,
-                        terciario: extractedColors.terciario,
-                        textOnPrimario,
-                        textOnSecundario
-                     });
-                     
-                     // Aplicar a CSS variables para uso global
-                     applyCssVariables(extractedColors.primario, extractedColors.secundario, extractedColors.terciario, textOnPrimario, textOnSecundario);
-                  } else {
-                     applyDefaultColors();
-                  }
-                  console.log('✅ [HeaderTop] Datos y colores aplicados');
-               } else {
-                  console.warn('⚠️ [HeaderTop] No se encontraron datos válidos');
-                  setInstitucion(null);
-                  applyDefaultColors();
-               }
-            }
-            
-         } catch (err: any) {
-            console.error("❌ [HeaderTop] Error cargando datos:", err);
-            if (isMounted) {
-               setInstitucion(null);
-               applyDefaultColors(); // Fallback seguro
-            }
-         } finally {
-            if (isMounted) {
-               setLoading(false);
-            }
-         }
-      };
-
-      fetchHeaderData();
-      
-      return () => { isMounted = false; };
-      
-   }, []);
-
-   // =============================================
-   // FUNCIONES DE ESTILOS
-   // =============================================
-   
-   const applyCssVariables = (
+   // ✅ applyCssVariables como función estable (no depende de nada externo)
+   const applyCssVariables = useCallback((
       primario: string, 
       secundario: string, 
       terciario: string,
@@ -277,38 +140,108 @@ const HeaderTopOne: React.FC = () => {
       root.style.setProperty('--heading-color', secundario);
       root.style.setProperty('--paragraph-color', '#333333');
       root.style.setProperty('--border-color', 'rgba(255,255,255,0.1)');
-      // ✅ Colores de texto con alto contraste para visibilidad
       root.style.setProperty('--text-on-main', textOnPrimario);
       root.style.setProperty('--text-on-heading', textOnSecundario);
       root.style.setProperty('--accent-color', terciario);
-   };
+   }, []); // ✅ Sin dependencias → función estable
    
-   const applyDefaultColors = () => {
-      // ✅ Colores por defecto de Sociología UPEA con contraste garantizado
-      const primario = '#FD1C0A';   // Rojo UPEA (oscuro → texto blanco)
-      const secundario = '#050504'; // Negro (oscuro → texto blanco)
-      const terciario = '#FAB265';  // Naranja (claro → texto negro)
+   // ✅ applyDefaultColors con useCallback para evitar warnings de eslint
+   const applyDefaultColors = useCallback(() => {
+      const primario = '#FD1C0A';
+      const secundario = '#050504';
+      const terciario = '#FAB265';
       
       setColors({
          primario,
          secundario,
          terciario,
-         textOnPrimario: '#FFFFFF', // Blanco sobre rojo
-         textOnSecundario: '#FFFFFF' // Blanco sobre negro
+         textOnPrimario: '#FFFFFF',
+         textOnSecundario: '#FFFFFF'
       });
       
       applyCssVariables(primario, secundario, terciario, '#FFFFFF', '#FFFFFF');
-   };
+   }, [applyCssVariables]); // ✅ Solo depende de applyCssVariables (estable)
 
    // =============================================
-   // PREPARAR DATOS LIMPIOS (memoizado)
+   // CARGA DE DATOS
+   // =============================================
+   useEffect(() => {
+      let isMounted = true;
+      
+      const fetchHeaderData = async () => {
+         try {
+            console.log('🔄 [HeaderTop] API:', API_BASE_URL);
+            console.log('📋 Institución ID:', INSTITUCION_ID);
+            
+            const response = await getInstitucionHeaderData(INSTITUCION_ID);
+            
+            if (response.status === 404 || response.data?.statusCode === 404) {
+               if (isMounted) {
+                  setInstitucion(null);
+                  applyDefaultColors();
+               }
+               return;
+            }
+            
+            let datos: InstitucionData | null = null;
+            if (response.data?.Descripcion && typeof response.data.Descripcion === 'object') {
+               datos = response.data.Descripcion as InstitucionData;
+            } else if (response.data?.institucion_id) {
+               datos = response.data as InstitucionData;
+            }
+            
+            if (isMounted) {
+               if (datos) {
+                  setInstitucion(datos);
+                  
+                  const extractedColors = extractInstitutionalColors(response.data);
+                  
+                  if (extractedColors) {
+                     const textOnPrimario = getContrastTextColor(extractedColors.primario);
+                     const textOnSecundario = getContrastTextColor(extractedColors.secundario);
+                     
+                     setColors({
+                        primario: extractedColors.primario,
+                        secundario: extractedColors.secundario,
+                        terciario: extractedColors.terciario,
+                        textOnPrimario,
+                        textOnSecundario
+                     });
+                     
+                     applyCssVariables(extractedColors.primario, extractedColors.secundario, extractedColors.terciario, textOnPrimario, textOnSecundario);
+                  } else {
+                     applyDefaultColors();
+                  }
+               } else {
+                  setInstitucion(null);
+                  applyDefaultColors();
+               }
+            }
+            
+         } catch (err: any) {
+            console.error("❌ [HeaderTop] Error:", err?.message);
+            if (isMounted) {
+               setInstitucion(null);
+               applyDefaultColors();
+            }
+         } finally {
+            if (isMounted) setLoading(false);
+         }
+      };
+
+      fetchHeaderData();
+      return () => { isMounted = false; };
+      
+   }, [applyDefaultColors, applyCssVariables]); // ✅ Dependencias explícitas
+
+   // =============================================
+   // DATOS MEMOIZADOS
    // =============================================
    const headerData = useMemo(() => {
       if (!institucion) {
-         // Fallback con datos por defecto de Sociología
          return {
             direccion: "Av. Sucre Z. Villa Esperanza, Campus UPEA",
-            facebook: "https://www.facebook.com/Ingenieriadesistemasupeafuturo/  ",
+            facebook: "https://www.facebook.com/Ingenieriadesistemasupeafuturo/",
             twitter: "#",
             youtube: "#"
          };
@@ -323,10 +256,9 @@ const HeaderTopOne: React.FC = () => {
    }, [institucion]);
 
    // =============================================
-   // RENDERIZADO PRINCIPAL
+   // RENDERIZADO
    // =============================================
    
-   // Estado de carga minimalista (no bloqueante)
    if (loading) {
       return (
          <div className="navbar-top" style={{ 
@@ -338,7 +270,7 @@ const HeaderTopOne: React.FC = () => {
             <div className="container">
                <div className="row">
                   <div className="col-12 text-center">
-                     <small>Cargando información...</small>
+                     <small>Conectando con: {API_BASE_URL}</small>
                   </div>
                </div>
             </div>
@@ -350,18 +282,12 @@ const HeaderTopOne: React.FC = () => {
       <header 
          className="navbar-top" 
          style={{ 
-            // ✅ Fondo con color primario institucional
             backgroundColor: colors.primario,
-            // ✅ Texto con CONTRASTE ALTO para máxima visibilidad
             color: colors.textOnPrimario,
-            // ✅ Sombra sutil para separación visual
             boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-            // ✅ Padding cómodo para lectura
             padding: '8px 0',
-            // ✅ Fuente legible
             fontSize: '0.9rem',
             fontWeight: 500,
-            // ✅ Transición suave para cambios de tema
             transition: 'background-color 0.3s ease, color 0.3s ease'
          }}
       >
@@ -375,7 +301,6 @@ const HeaderTopOne: React.FC = () => {
                         <span 
                            className="d-inline-flex align-items-center gap-2"
                            style={{ 
-                              // ✅ Borde sutil para mejor legibilidad si el contraste no es perfecto
                               textShadow: colors.textOnPrimario === '#000000' 
                                  ? '0 1px 2px rgba(255,255,255,0.8)' 
                                  : '0 1px 2px rgba(0,0,0,0.6)'
@@ -386,7 +311,6 @@ const HeaderTopOne: React.FC = () => {
                         </span>
                      </li>
                      
-                     {/* Teléfono si está disponible */}
                      {institucion?.institucion_celular1 && institucion.institucion_celular1 !== 2147483647 && (
                         <li>
                            <a 
@@ -414,7 +338,6 @@ const HeaderTopOne: React.FC = () => {
                <div className="col-md-5 col-12">
                   <ul className="topbar-right list-unstyled mb-0 d-flex justify-content-center justify-content-md-end gap-3">
                      
-                     {/* Facebook */}
                      {headerData.facebook !== "#" && (
                         <li>
                            <Link 
@@ -427,7 +350,6 @@ const HeaderTopOne: React.FC = () => {
                                  width: '32px',
                                  height: '32px',
                                  borderRadius: '50%',
-                                 // ✅ Fondo blanco para icono oscuro, o viceversa según contraste
                                  background: colors.textOnPrimario === '#FFFFFF' ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.2)',
                                  color: colors.textOnPrimario === '#FFFFFF' ? '#1877F2' : colors.terciario,
                                  fontSize: '0.9rem',
@@ -448,7 +370,6 @@ const HeaderTopOne: React.FC = () => {
                         </li>
                      )}
                      
-                     {/* Twitter / Telegram */}
                      {headerData.twitter !== "#" && (
                         <li>
                            <Link 
@@ -481,7 +402,6 @@ const HeaderTopOne: React.FC = () => {
                         </li>
                      )}
                      
-                     {/* YouTube */}
                      {headerData.youtube !== "#" && (
                         <li>
                            <Link 
@@ -513,10 +433,8 @@ const HeaderTopOne: React.FC = () => {
                            </Link>
                         </li>
                      )}
-                     
                   </ul>
                </div>
-               
             </div>
          </div>
       </header>
